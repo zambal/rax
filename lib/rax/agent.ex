@@ -1,19 +1,23 @@
 defmodule Rax.Agent do
-  def start(cluster, agent, fun) do
-    Rax.call(cluster, {:start, agent, fun})
+
+  require Logger
+
+  def new(cluster, agent, fun) do
+    Rax.call(cluster, {:new, agent, fun})
+    |> handle_result()
   end
 
-  def stop(cluster, agent) do
-    Rax.call(cluster, {:stop, agent})
+  def delete(cluster, agent) do
+    Rax.call(cluster, {:delete, agent})
   end
 
   def get(cluster, agent, fun) do
-    Rax.query(cluster, &safe_call(agent, fun, &1))
+    Rax.query(cluster, &safe_call(agent, fun, &1.agents))
     |> handle_result()
   end
 
   def get(cluster, agent, module, fun, args) do
-    Rax.query(cluster, &safe_call(agent, fn s -> Kernel.apply(module, fun, [s | args]) end, &1))
+    Rax.query(cluster, &safe_call(agent, fn s -> Kernel.apply(module, fun, [s | args]) end, &1.agents))
     |> handle_result()
   end
 
@@ -45,6 +49,10 @@ defmodule Rax.Agent do
     Rax.cast(cluster, {:update, agent, fn s -> Kernel.apply(module, fun, [s | args]) end})
   end
 
+  def set_auto_snapshot(cluster, n) do
+    Rax.call(cluster, {:set_auto_snapshot, n})
+  end
+
   defp safe_call(agent, fun, state) do
     if agent_state = Map.get(state, agent) do
       try do
@@ -52,6 +60,7 @@ defmodule Rax.Agent do
       catch
         :error, value ->
           {:error, :error, value, __STACKTRACE__}
+
         kind, value ->
           {:error, kind, value}
       end
@@ -62,73 +71,85 @@ defmodule Rax.Agent do
 
   defp handle_result(:ok), do: :ok
   defp handle_result({:ok, value}), do: value
-  defp handle_result({:error, :no_agent, agent}), do: raise ArgumentError, message: "agent not found: #{inspect agent}"
-  defp handle_result({:error, :badarg}), do: raise ArgumentError
-  defp handle_result({:error, :error, ex, st}), do: raise Exception.normalize(:error, ex, st)
+
+  defp handle_result({:error, :no_agent, agent}),
+    do: raise(ArgumentError, message: "agent not found: #{inspect(agent)}")
+
+  defp handle_result({:error, :badarg}), do: raise(ArgumentError)
+  defp handle_result({:error, :error, ex, st}), do: raise(Exception.normalize(:error, ex, st))
   defp handle_result({:error, :exit, reason}), do: exit(reason)
   defp handle_result({:error, :throw, value}), do: throw(value)
 
   # State Machine
 
-  def init(_), do: %{}
+  def init(opts), do: %{agents: %{}, auto_snapshot: opts[:auto_snapshot]}
 
-  def apply(_meta, {:start, agent, fun}, state) do
+  def apply(meta, {:new, agent, fun}, state) do
     try do
       {:ok, fun.()}
     catch
       :error, value ->
         {:error, :error, value, __STACKTRACE__}
+
       kind, value ->
         {:error, kind, value}
     end
-    |> case do
-      {:ok, agent_state} ->
-        {Map.put(state, agent, agent_state), :ok}
-
-      error ->
-        {state, error}
-    end
+    |> handle_update_result(agent, state, meta)
   end
 
-  def apply(_meta, {:stop, agent}, state) do
-    {Map.delete(state, agent), :ok}
+  def apply(_meta, {:delete, agent}, state) do
+    {Map.update!(state, :agents, &Map.delete(&1, agent)), :ok}
   end
 
-  def apply(_meta, {:get_and_update, agent, fun}, state) do
-    safe_call(agent, fun, state)
-    |> handle_get_and_update_result(agent, state)
+  def apply(meta, {:get_and_update, agent, fun}, state) do
+    safe_call(agent, fun, state.agents)
+    |> handle_get_and_update_result(agent, state, meta)
   end
 
-  def apply(_meta, {:get_and_update, agent, mod, fun, args}, state) do
-    safe_call(agent, fn s -> Kernel.apply(mod, fun, [s | args]) end, state)
-    |> handle_get_and_update_result(agent, state)
+  def apply(meta, {:get_and_update, agent, mod, fun, args}, state) do
+    safe_call(agent, fn s -> Kernel.apply(mod, fun, [s | args]) end, state.agents)
+    |> handle_get_and_update_result(agent, state, meta)
   end
 
-  def apply(_meta, {:update, agent, fun}, state) do
-    safe_call(agent, fun, state)
-    |> handle_update_result(agent, state)
+  def apply(meta, {:update, agent, fun}, state) do
+    safe_call(agent, fun, state.agents)
+    |> handle_update_result(agent, state, meta)
   end
 
-  def apply(_meta, {:update, agent, mod, fun, args}, state) do
-    safe_call(agent, fn s -> Kernel.apply(mod, fun, [s | args]) end, state)
-    |> handle_update_result(agent, state)
+  def apply(meta, {:update, agent, mod, fun, args}, state) do
+    safe_call(agent, fn s -> Kernel.apply(mod, fun, [s | args]) end, state.agents)
+    |> handle_update_result(agent, state, meta)
   end
 
-  defp handle_get_and_update_result({:ok, {reply, agent_state}}, agent, state) do
-    {Map.put(state, agent, agent_state), {:ok, reply}}
-  end
-  defp handle_get_and_update_result({:ok, _badarg}, _agent, state) do
-    {state, {:error, :badarg}}
-  end
-  defp handle_get_and_update_result(error, _agent, state) do
-    {state, error}
+  def apply(meta, {:set_auto_snapshot, n}, state) do
+    {Map.put(state, :auto_snapshot, n), :ok, maybe_request_snapshot(meta, state)}
   end
 
-  defp handle_update_result({:ok, agent_state}, agent, state) do
-    {Map.put(state, agent, agent_state), :ok}
-  end
-  defp handle_update_result(error, _agent, state) do
-    {state, error}
+  defp handle_get_and_update_result({:ok, {reply, agent_state}}, agent, state, meta) do
+    {put_in(state, [:agents, agent], agent_state), {:ok, reply}, maybe_request_snapshot(meta, state)}
   end
 
+  defp handle_get_and_update_result({:ok, _badarg}, _agent, state, meta) do
+    {state, {:error, :badarg}, maybe_request_snapshot(meta, state)}
+  end
+
+  defp handle_get_and_update_result(error, _agent, state, meta) do
+    {state, error, maybe_request_snapshot(meta, state)}
+  end
+
+  defp handle_update_result({:ok, agent_state}, agent, state, meta) do
+    {put_in(state, [:agents, agent], agent_state), :ok, maybe_request_snapshot(meta, state)}
+  end
+
+  defp handle_update_result(error, _agent, state, meta) do
+    {state, error, maybe_request_snapshot(meta, state)}
+  end
+
+  defp maybe_request_snapshot(%{index: ndx}, %{auto_snapshot: n} = state)
+       when is_integer(n) and n > 0 and ndx != 0 and rem(ndx, n) == 0 do
+    Logger.debug "snapshot requested at index #{inspect ndx}: #{inspect state}"
+    [{:release_cursor, ndx, state}]
+  end
+
+  defp maybe_request_snapshot(_, _), do: []
 end
