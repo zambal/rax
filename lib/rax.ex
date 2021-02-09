@@ -126,11 +126,11 @@ defmodule Rax do
     end
   end
 
-  @spec members(Cluster.name()) ::
+  @spec members(Cluster.name(), timeout() | nil) ::
           {:ok, members, leader} | {:error, any} | {:timeout, :ra.server_id()}
         when members: [:ra.server_id()], leader: :ra.server_id()
-  def members(cluster) do
-    {local, _, timeout} = NodeManager.fetch_cluster_info(cluster, true)
-    :ra.members(local, timeout)
+  def members(cluster, timeout \\ nil) do
+    {local, _, def_timeout} = NodeManager.fetch_cluster_info(cluster, true)
+    :ra.members(local, timeout || def_timeout)
   end
 end
