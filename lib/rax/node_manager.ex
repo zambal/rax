@@ -164,11 +164,13 @@ defmodule Rax.NodeManager do
 
   defp create_cluster_info_table do
     :ets.new(:rax_cluster_info, [:named_table, :public, {:read_concurrency, true}])
+    Logger.debug(":rax_cluster_info ets table created")
     :ok
   end
 
   defp delete_cluster_info_table do
     :ets.delete(:rax_cluster_info)
+    Logger.debug(":rax_cluster_info ets table deleted")
     :ok
   end
 
@@ -178,6 +180,7 @@ defmodule Rax.NodeManager do
          timeout: timeout
        }) do
     :ets.insert(:rax_cluster_info, {name, server_id, nil, timeout, false})
+    Logger.debug(":rax_cluster_info inserted: #{inspect {name, server_id, timeout}}")
     :ok
   end
 

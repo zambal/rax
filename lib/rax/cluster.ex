@@ -1,6 +1,8 @@
 defmodule Rax.Cluster do
   @moduledoc false
 
+  require Logger
+
   alias __MODULE__
 
   defstruct name: nil,
@@ -120,11 +122,18 @@ defmodule Rax.Cluster do
 
   defp evaluate_health(cluster) do
     case members(cluster) do
-      {:ok, _, _} ->
+      {:ok, members, leader} ->
+        Logger.info("\r\n== Rax health check results for #{inspect cluster.name} ==\r\nmembers: #{inspect members}\r\nleader: #{inspect leader}")
         %Cluster{cluster | status: :ready}
 
-      _ ->
+      {:timeout, server_id} ->
+        Logger.info("\r\n== Rax health check results for #{inspect cluster.name} ==\r\ntimeout: #{inspect server_id}")
         %Cluster{cluster | status: :health_check}
+
+      {:error, e} ->
+        Logger.info("\r\n== Rax health check results for #{inspect cluster.name} ==\r\nerror: #{inspect e}")
+        %Cluster{cluster | status: :health_check}
+
     end
   end
 
@@ -195,7 +204,7 @@ defmodule Rax.Cluster do
   end
 
   defp validate_timeout(nil) do
-    {:ok, 60_000}
+    {:ok, 5_000}
   end
 
   defp validate_timeout(_) do
