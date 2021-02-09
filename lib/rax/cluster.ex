@@ -123,17 +123,29 @@ defmodule Rax.Cluster do
   defp evaluate_health(cluster) do
     case members(cluster) do
       {:ok, members, leader} ->
-        Logger.info("\r\n== Rax health check results for #{inspect cluster.name} ==\r\nmembers: #{inspect members}\r\nleader: #{inspect leader}")
+        Logger.info(
+          "\r\n== Rax health check results for #{inspect(cluster.name)} ==\r\nmembers: #{
+            inspect(members)
+          }\r\nleader: #{inspect(leader)}"
+        )
+
         %Cluster{cluster | status: :ready}
 
       {:timeout, server_id} ->
-        Logger.info("\r\n== Rax health check results for #{inspect cluster.name} ==\r\ntimeout: #{inspect server_id}")
+        Logger.info(
+          "\r\n== Rax health check results for #{inspect(cluster.name)} ==\r\ntimeout: #{
+            inspect(server_id)
+          }"
+        )
+
         %Cluster{cluster | status: :health_check}
 
       {:error, e} ->
-        Logger.info("\r\n== Rax health check results for #{inspect cluster.name} ==\r\nerror: #{inspect e}")
-        %Cluster{cluster | status: :health_check}
+        Logger.info(
+          "\r\n== Rax health check results for #{inspect(cluster.name)} ==\r\nerror: #{inspect(e)}"
+        )
 
+        %Cluster{cluster | status: :health_check}
     end
   end
 

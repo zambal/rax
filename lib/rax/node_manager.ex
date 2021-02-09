@@ -180,7 +180,7 @@ defmodule Rax.NodeManager do
          timeout: timeout
        }) do
     :ets.insert(:rax_cluster_info, {name, server_id, nil, timeout, false})
-    Logger.debug(":rax_cluster_info inserted: #{inspect {name, server_id, timeout}}")
+    Logger.debug(":rax_cluster_info inserted: #{inspect({name, server_id, timeout})}")
     :ok
   end
 
