@@ -57,7 +57,7 @@ defmodule Rax.NodeManager do
       {name, opts}, {:ok, acc} ->
         with {:ok, cluster} <- Cluster.new(name, opts),
              {:ok, cluster} <- Cluster.start_local_server(cluster) do
-          init_cluster_info(cluster)
+          insert_cluster_info(cluster)
           send(self(), {:do_health_check, name})
           {:ok, Map.put(acc, name, cluster)}
         else
@@ -74,7 +74,7 @@ defmodule Rax.NodeManager do
     if cluster = Map.get(clusters, cluster_name) do
       case Cluster.start_local_server(cluster) do
         {:ok, cluster} ->
-          init_cluster_info(cluster)
+          insert_cluster_info(cluster)
           send(self(), {:do_health_check, cluster_name})
           {:reply, :ok, Map.put(clusters, cluster_name, cluster)}
 
@@ -172,7 +172,7 @@ defmodule Rax.NodeManager do
     :ok
   end
 
-  defp init_cluster_info(%Cluster{
+  defp insert_cluster_info(%Cluster{
          name: name,
          local_server_id: server_id,
          timeout: timeout
