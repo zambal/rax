@@ -12,7 +12,8 @@ defmodule Rax.Cluster do
             machine: nil,
             status: :new,
             timeout: 5_000,
-            circuit_breaker: true
+            circuit_breaker: true,
+            auto_snapshot: false
 
   @type name :: atom()
   @type node_name :: atom()
@@ -54,7 +55,8 @@ defmodule Rax.Cluster do
     with [_ | _] <- initial_members,
          {:ok, machine} <- validate_machine(opts[:machine]),
          {:ok, timeout} <- validate_timeout(opts[:timeout]),
-         {:ok, cb} <- validate_circuit_breaker(opts[:circuit_breaker]) do
+         {:ok, cb} <- validate_circuit_breaker(opts[:circuit_breaker]),
+         {:ok, as} <- validate_auto_snapshot(opts[:auto_snapshot]) do
       cluster = %Cluster{
         name: name,
         local_server_id: server_id,
@@ -62,7 +64,8 @@ defmodule Rax.Cluster do
         initial_members: initial_members,
         machine: machine,
         timeout: timeout,
-        circuit_breaker: cb
+        circuit_breaker: cb,
+        auto_snapshot: as
       }
 
       {:ok, cluster}
@@ -180,13 +183,19 @@ defmodule Rax.Cluster do
   end
 
   @spec to_ra_server_config(t()) :: map()
-  def to_ra_server_config(%Cluster{machine: {mod, opts}} = cluster) do
+  def to_ra_server_config(%Cluster{} = cluster) do
+    opts = %{
+      cluster_name: cluster.name,
+      machine: cluster.machine,
+      auto_snapshot: cluster.auto_snapshot
+    }
+
     %{
       cluster_name: cluster.name,
       id: cluster.local_server_id,
       uid: cluster.local_server_uid,
       initial_members: cluster.initial_members,
-      machine: {:module, mod, opts},
+      machine: {:module, Rax.Machine, opts},
       log_init_args: %{uid: cluster.local_server_uid}
     }
   end
@@ -233,6 +242,18 @@ defmodule Rax.Cluster do
 
   defp validate_circuit_breaker(_) do
     {:error, :invalid_circuit_breaker}
+  end
+
+  defp validate_auto_snapshot(n) when is_integer(n) do
+    {:ok, n}
+  end
+
+  defp validate_auto_snapshot(a) when a in [false, nil] do
+    {:ok, false}
+  end
+
+  defp validate_auto_snapshot(_) do
+    {:error, :invalid_auto_snapshot}
   end
 
   defp make_server_id(node, name) do
