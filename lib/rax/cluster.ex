@@ -14,7 +14,7 @@ defmodule Rax.Cluster do
     GenServer.cast(name, :request_health_check)
   end
 
-  def update_auto_snapshot(cluster_name, n) when n == false or is_integer(n) and n > 0 do
+  def update_auto_snapshot(cluster_name, n) when n == false or (is_integer(n) and n > 0) do
     Rax.call(cluster_name, {:"$rax_cmd", :update_auto_snapshot, n})
   end
 
@@ -217,6 +217,7 @@ defmodule Rax.Cluster do
     __MODULE__ = :ets.new(__MODULE__, [:named_table, :public, {:read_concurrency, true}])
     :ok
   end
+
   @doc false
   def delete_info_table do
     true = :ets.delete(__MODULE__)
