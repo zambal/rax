@@ -98,7 +98,7 @@ defmodule Rax.Machine do
     {state, reply, effects}
   end
 
-  @spec state_enter(any, atom | %{machine: atom, machine_state: any}) :: [any]
+  @spec state_enter(any, atom | %{machine: atom, machine_state: any}) :: :ra_machine.effects()
   def state_enter(raft_state, state) do
     opt_effects_call(state.machine, :state_enter, [raft_state, state.machine_state], [])
   end
