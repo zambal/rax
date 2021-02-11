@@ -141,10 +141,6 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp members(cluster) do
-    :ra.members(cluster.local_server_id)
-  end
-
   defp check_health(cluster) do
     connect_initial_nodes(cluster)
     server_id = cluster.local_server_id
@@ -165,9 +161,9 @@ defmodule Rax.Cluster do
   defp evaluate_health(cluster) do
     log_line = "\r\n== Rax health check results for #{inspect(cluster.name)} ==\r\n"
 
-    case members(cluster) do
-      {:ok, members, leader} ->
-        Logger.info(log_line <> "members: #{inspect(members)}\r\nleader: #{inspect(leader)}")
+    case ping(cluster) do
+      {:ok, leader} ->
+        Logger.info(log_line <> "leader: #{inspect(leader)}")
         %Config{cluster | status: :ready}
 
       {:timeout, server_id} ->
@@ -177,6 +173,17 @@ defmodule Rax.Cluster do
       {:error, e} ->
         Logger.info(log_line <> "error: #{inspect(e)}")
         %Config{cluster | status: :health_check}
+    end
+  end
+
+  defp ping(%Config{name: cluster_name, local_server_id: from} = c) do
+    Logger.warn(inspect c)
+    case :ra.process_command(cluster_name, {:"$rax_cmd", :ping, from}) do
+      {:ok, ^from, leader} ->
+        {:ok, leader}
+
+      error ->
+        error
     end
   end
 

@@ -54,6 +54,11 @@ defmodule Rax.Machine do
     %Apply{ctx | status: :done, state: Map.put(ctx.state, :auto_snapshot, n), reply: :ok}
   end
 
+  # Handle ping health check command
+  defp handle_pre_apply(%Apply{status: :cont, cmd: {:"$rax_cmd", :ping, from}} = ctx) do
+    %Apply{ctx | status: :done, reply: from}
+  end
+
   defp handle_pre_apply(ctx) do
     ctx
   end
