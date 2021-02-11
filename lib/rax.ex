@@ -80,9 +80,7 @@ defmodule Rax do
     {:ra.local_query(req.local_id, req.arg, req.timeout), req}
   end
 
-  @spec members(cluster_name(), timeout() | nil) ::
-          {:ok, members, leader} | {:error, any} | {:timeout, :ra.server_id()}
-        when members: [:ra.server_id()], leader: :ra.server_id()
+  @spec members(cluster_name(), timeout() | nil) :: :ra_server_proc.ra_leader_call_ret([:ra.server_id()])
   def members(cluster, timeout \\ nil) do
     req = Request.new(cluster, nil, nil, true)
     :ra.members(req.local_id, timeout || req.timeout)
