@@ -104,6 +104,10 @@ defmodule Rax do
 
       req.retry_fun.(req)
     else
+      if req.retry_max > 0 do
+        Cluster.request_health_check(req.cluster_name)
+      end
+
       fun_name = Function.info(req.retry_fun)[:name]
       exit({error, {__MODULE__, fun_name, [req.cluster_name, req.arg]}})
     end
