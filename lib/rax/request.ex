@@ -13,7 +13,7 @@ defmodule Rax.Request do
     case Rax.Cluster.lookup_info(cluster_name) do
       [{_name, local, timeout, retry, av}] when av or ignore_availability ->
         leader = :ra_leaderboard.lookup_leader(cluster_name)
-        {max, interval} = transform_retry(retry)
+        {max, interval} = retry
 
         %__MODULE__{
           cluster_name: cluster_name,
@@ -33,12 +33,5 @@ defmodule Rax.Request do
       [] ->
         exit({:cluster_not_started, {__MODULE__, Function.info(fun)[:name], [cluster_name, arg]}})
     end
-  end
-
-  defp transform_retry(false) do
-  end
-
-  defp transform_retry({_max, _interval} = retry) do
-    retry
   end
 end
