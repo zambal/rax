@@ -5,141 +5,103 @@ defmodule Rax do
 
   require Logger
 
-  alias Rax.{Cluster, ClusterManager}
+  alias Rax.{Cluster, Request}
+
+  @type cluster_name :: atom()
+  @type node_name :: atom()
+  @type machine :: {module(), map()}
+  @type cluster_states :: :new | :started | :health_check | :ready
+
 
   defmodule TimeoutError do
     defexception [:message]
   end
 
-  @spec call(Cluster.name(), term()) :: term()
+  @spec call(cluster_name(), term()) :: term()
   def call(cluster, cmd) do
-    case ClusterManager.fetch_cluster_info(cluster) do
-      :unavailable ->
-        exit({:unavailable, {__MODULE__, :call, [cluster, cmd]}})
-
-      {local, leader, timeout} ->
-        do_call(cluster, cmd, local, leader, timeout)
-    end
+    Request.new(cluster, &call/1, cmd) |> call()
   end
 
-  defp do_call(cluster, cmd, local, nil, timeout) do
-    case :ra.process_command(local, cmd, timeout) do
-      {:ok, reply, leader} ->
-        ClusterManager.update_leader(cluster, leader)
-        reply
-
-      {:error, error} ->
-        exit({error, {__MODULE__, :call, [cluster, cmd]}})
-
-      {:timeout, _server_id} ->
-        ClusterManager.request_health_check(cluster)
-        raise TimeoutError, message: "Rax.call(#{inspect(cluster)}, #{inspect(cmd)})"
-    end
+  defp call(req) do
+    req |> do_call() |> handle_result()
   end
 
-  defp do_call(cluster, cmd, local, leader, timeout) do
-    case :ra.process_command(leader, cmd, timeout) do
-      {:ok, reply, rleader} ->
-        if rleader != leader, do: ClusterManager.update_leader(cluster, rleader)
-        reply
-
-      {:error, _error} ->
-        Logger.debug(
-          "Rax.call(#{inspect(cluster)}, #{inspect(cmd)}) to last known leader failed, trying local server"
-        )
-
-        do_call(cluster, cmd, local, nil, timeout)
-
-      {:timeout, _server_id} ->
-        ClusterManager.request_health_check(cluster)
-        raise TimeoutError, message: "Rax.call(#{inspect(cluster)}, #{inspect(cmd)})"
-    end
+  defp do_call(%Request{leader_id: :undefined, local_id: server_id, arg: arg, timeout: timeout} = req) do
+    {:ra.process_command(server_id, arg, timeout), req}
+  end
+  defp do_call(%Request{leader_id: server_id, arg: arg, timeout: timeout} = req) do
+    {:ra.process_command(server_id, arg, timeout), req}
   end
 
-  @spec cast(Cluster.name(), term()) :: :ok
+  @spec cast(cluster_name(), term()) :: :ok
   def cast(cluster, cmd) do
-    {_, leader, _} = ClusterManager.fetch_cluster_info(cluster, true)
+    leader = :ra_leaderboard.lookup_leader(cluster)
 
-    unless is_nil(leader) do
+    unless leader == :undefined do
       :ra.pipeline_command(leader, cmd)
     end
 
     :ok
   end
 
-  @spec query(Cluster.name(), :ra.query_fun()) :: term()
-  def query(cluster, query_fun) do
-    case ClusterManager.fetch_cluster_info(cluster) do
-      :unavailable ->
-        exit({:unavailable, {__MODULE__, :query, [cluster, query_fun]}})
-
-      {local, leader, timeout} ->
-        do_query(cluster, query_fun, local, leader, timeout)
-    end
+  @spec query(cluster_name(), :ra.query_fun()) :: term()
+  def query(cluster, query_fun) when is_function(query_fun, 1) do
+    Request.new(cluster, &query/1, fn s -> query_fun.(s.machine_state) end) |> query()
   end
 
-  defp do_query(cluster, query_fun, local, nil, timeout) do
-    case :ra.consistent_query(local, query_fun, timeout) do
-      {:ok, reply, leader} ->
-        ClusterManager.update_leader(cluster, leader)
-        reply
-
-      {:error, error} ->
-        exit({error, {__MODULE__, :query, [cluster, query_fun]}})
-
-      {:timeout, _server_id} ->
-        ClusterManager.request_health_check(cluster)
-        raise TimeoutError, message: "Rax.query(#{inspect(cluster)}, #{inspect(query_fun)})"
-    end
+  defp query(req) do
+    req |> do_query() |> handle_result()
   end
 
-  defp do_query(cluster, query_fun, local, leader, timeout) do
-    case :ra.consistent_query(leader, query_fun, timeout) do
-      {:ok, reply, rleader} ->
-        if rleader != leader, do: ClusterManager.update_leader(cluster, rleader)
-        reply
-
-      {:error, _error} ->
-        Logger.debug(
-          "Rax.query(#{inspect(cluster)}, #{inspect(query_fun)}) redirected to local server"
-        )
-
-        do_query(cluster, query_fun, local, nil, timeout)
-
-      {:timeout, _server_id} ->
-        ClusterManager.request_health_check(cluster)
-        raise TimeoutError, message: "Rax.query(#{inspect(cluster)}, #{inspect(query_fun)})"
-    end
+  defp do_query(%Request{leader_id: :undefined, local_id: server_id, arg: query_fun, timeout: timeout} = req) do
+    {:ra.consistent_query(server_id, query_fun, timeout), req}
+  end
+  defp do_query(%Request{leader_id: server_id, arg: query_fun, timeout: timeout} = req) do
+    {:ra.consistent_query(server_id, query_fun, timeout), req}
   end
 
-  @spec local_query(Cluster.name(), :ra.query_fun()) :: term()
-  def local_query(cluster, query_fun) do
-    case ClusterManager.fetch_cluster_info(cluster) do
-      :unavailable ->
-        exit({:unavailable, {__MODULE__, :query, [cluster, query_fun]}})
+  @spec local_query(cluster_name(), :ra.query_fun()) :: term()
+  def local_query(cluster, query_fun) when is_function(query_fun, 1) do
+    {_idx_term, reply} =
+      Request.new(cluster, &local_query/1, fn s -> query_fun.(s.machine_state) end) |> local_query()
 
-      {local, _leader, timeout} ->
-        case :ra.local_query(local, query_fun, timeout) do
-          {:ok, {_idx_term, reply}, _leader} ->
-            reply
-
-          {:error, error} ->
-            exit({error, {__MODULE__, :local_query, [cluster, query_fun]}})
-
-          {:timeout, _server_id} ->
-            Rax.ClusterManager.request_health_check(cluster)
-
-            raise TimeoutError,
-              message: "Rax.local_query(#{inspect(cluster)}, #{inspect(query_fun)})"
-        end
-    end
+    reply
   end
 
-  @spec members(Cluster.name(), timeout() | nil) ::
+  defp local_query(req) do
+    req |> do_local_query() |> handle_result()
+  end
+
+  defp do_local_query(%Request{local_id: server_id, arg: query_fun, timeout: timeout} = req) do
+    {:ra.local_query(server_id, query_fun, timeout), req}
+  end
+
+  @spec members(cluster_name(), timeout() | nil) ::
           {:ok, members, leader} | {:error, any} | {:timeout, :ra.server_id()}
         when members: [:ra.server_id()], leader: :ra.server_id()
   def members(cluster, timeout \\ nil) do
-    {local, _, def_timeout} = ClusterManager.fetch_cluster_info(cluster, true)
-    :ra.members(local, timeout || def_timeout)
+    req = Request.new(cluster, nil, nil, true)
+    :ra.members(req.local_id, timeout || req.timeout)
+  end
+
+  defp handle_result({{:ok, reply, _lesder}, _req}) do
+    reply
+  end
+  defp handle_result({{:error, error}, req}) do
+    cond do
+      req.retry_counter < req.retry_max - 1 ->
+      Process.sleep(req.retry_interval)
+      req.retry_fun.(%Request{req | retry_counter: req.retry_counter + 1, leader_id: :ra_leaderboard.lookup_leader(req.cluster_name)})
+
+      req.retry_counter == req.retry_max - 1 ->
+        req.retry_fun.(%Request{req | retry_counter: req.retry_counter + 1, leader_id: nil})
+
+      true ->
+        exit({error, {__MODULE__, Function.info(req.retry_fun)[:name], [req.cluster_name, req.arg]}})
+    end
+  end
+  defp handle_result({{:timeout, _server_id}, req}) do
+    Cluster.request_health_check(req.cluster_name)
+    raise TimeoutError, message: inspect(req)
   end
 end

@@ -7,7 +7,7 @@ defmodule Rax.Machine do
     defstruct [:cluster_name, :machine, :machine_state, :auto_snapshot]
 
     @type t :: %State{
-            cluster_name: Rax.Cluster.name(),
+            cluster_name: Rax.cluster_name(),
             machine: module(),
             machine_state: term(),
             auto_snapshot: pos_integer() | false
@@ -41,25 +41,6 @@ defmodule Rax.Machine do
     state
   end
 
-  def state_enter(raft_state, state) do
-    effects =
-      case raft_state do
-        :leader ->
-          [{:mod_call, Rax.ClusterManager, :verify_local_leadership, [state.cluster_name]}]
-
-        _ ->
-          []
-      end
-
-    case opt_call(state.machine, :state_enter, [raft_state, state.machine_state]) do
-      {:ok, m_effects} ->
-        m_effects ++ effects
-
-      :nocall ->
-        effects
-    end
-  end
-
   def apply(meta, cmd, state) do
     %Apply{meta: meta, cmd: cmd, state: state}
     |> handle_pre_apply()
@@ -69,7 +50,7 @@ defmodule Rax.Machine do
   end
 
   # Handle auto_snapshot update command
-  defp handle_pre_apply(%Apply{status: :cont, cmd: {:"$rax_update_auto_snapshot", n}} = ctx) do
+  defp handle_pre_apply(%Apply{status: :cont, cmd: {:"$rax_cmd", :update_auto_snapshot, n}} = ctx) do
     %Apply{ctx | status: :done, state: Map.put(ctx.state, :auto_snapshot, n), reply: :ok}
   end
 
@@ -117,11 +98,25 @@ defmodule Rax.Machine do
     {state, reply, effects}
   end
 
-  defp opt_call(mod, fun, args) do
+  @spec state_enter(any, atom | %{machine: atom, machine_state: any}) :: [any]
+  def state_enter(raft_state, state) do
+    opt_effects_call(state.machine, :state_enter, [raft_state, state.machine_state], [])
+  end
+
+  def tick(time_ms, state) do
+    Logger.warn("tick: #{inspect(time_ms)}")
+    opt_effects_call(state.machine, :tick, [time_ms, state.machine_state])
+  end
+
+  def init_aux(name) do
+    Logger.warn("init_aux: #{inspect(name)}")
+  end
+
+  defp opt_effects_call(mod, fun, args, effects \\ []) do
     if function_exported?(mod, fun, length(args)) do
-      {:ok, Kernel.apply(mod, fun, args)}
+      Kernel.apply(mod, fun, args) ++ effects
     else
-      :nocall
+      effects
     end
   end
 end
