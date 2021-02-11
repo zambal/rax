@@ -93,30 +93,19 @@ defmodule Rax do
   end
 
   defp handle_result({{:error, error}, req}) do
-    cond do
-      req.retry_counter < req.retry_max - 1 ->
-        Process.sleep(req.retry_interval)
+    if req.retry_counter < req.retry_max do
+      Process.sleep(req.retry_interval)
 
-        req = %Request{
-          req
-          | retry_counter: req.retry_counter + 1,
-            leader_id: :ra_leaderboard.lookup_leader(req.cluster_name)
-        }
+      req = %Request{
+        req
+        | retry_counter: req.retry_counter + 1,
+          leader_id: :ra_leaderboard.lookup_leader(req.cluster_name)
+      }
 
-        req.retry_fun.(req)
-
-      req.retry_counter == req.retry_max - 1 ->
-        req = %Request{
-          req
-          | retry_counter: req.retry_counter + 1,
-            leader_id: nil
-        }
-
-        req.retry_fun.(req)
-
-      true ->
-        fun_name = Function.info(req.retry_fun)[:name]
-        exit({error, {__MODULE__, fun_name, [req.cluster_name, req.arg]}})
+      req.retry_fun.(req)
+    else
+      fun_name = Function.info(req.retry_fun)[:name]
+      exit({error, {__MODULE__, fun_name, [req.cluster_name, req.arg]}})
     end
   end
 
