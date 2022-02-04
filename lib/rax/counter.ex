@@ -1,35 +1,34 @@
 defmodule Rax.Counter do
-  @behaviour :ra_machine
-
   # API
 
-  @spec inc(Rax.cluster_name()) :: integer()
+  @spec inc(Rax.Cluster.name()) :: integer()
   def inc(cluster) do
     Rax.call(cluster, :inc)
   end
 
-  @spec dec(Rax.cluster_name()) :: integer()
+  @spec dec(Rax.Cluster.name()) :: integer()
   def dec(cluster) do
     Rax.call(cluster, :dec)
   end
 
-  @spec set(Rax.cluster_name(), integer()) :: integer()
+  @spec set(Rax.Cluster.name(), integer()) :: integer()
   def set(cluster, n) when is_integer(n) do
     Rax.call(cluster, {:set, n})
   end
 
-  @spec reset(Rax.cluster_name()) :: :ok
+  @spec reset(Rax.Cluster.name()) :: :ok
   def reset(cluster) do
     Rax.cast(cluster, :reset)
   end
 
-  @spec fetch(Rax.cluster_name()) :: integer()
+  @spec fetch(Rax.Cluster.name()) :: integer()
   def fetch(cluster) do
     Rax.query(cluster, & &1)
   end
 
   # State machine
 
+  use Rax.Machine
   @doc false
   def init(_config) do
     0
@@ -50,5 +49,9 @@ defmodule Rax.Counter do
 
   def apply(_meta, :reset, _state) do
     {0, :ok}
+  end
+
+  def apply(meta, cmd, state) do
+    super(meta, cmd, state)
   end
 end

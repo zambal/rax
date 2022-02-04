@@ -4,25 +4,34 @@ defmodule Rax.Cluster do
   alias Rax.Cluster.Config
   require Logger
 
-  @health_check_interval 1_000
+  @health_check_interval 3_000
+
+  @type name :: atom()
+  @type cluster_node :: node() | atom()
+  @type status :: :new | :started | :health_check | :ready
 
   # API
 
-  @spec request_health_check(Rax.cluster_name()) :: :ok
-  def request_health_check(cluster_name) do
-    name = {:via, Registry, {Rax.Cluster.Registry, cluster_name}}
+  @spec request_health_check(Rax.name()) :: :ok
+  def request_health_check(name) do
+    name = {:via, Registry, {Rax.Cluster.Registry, name}}
     GenServer.cast(name, :request_health_check)
   end
 
-  def update_auto_snapshot(cluster_name, n) when n == false or (is_integer(n) and n > 0) do
-    Rax.call(cluster_name, {:"$rax_cmd", :update_auto_snapshot, n})
+  def request_snapshot(name) do
+    Rax.call(name, {:"$rax_cmd", :request_snapshot, name})
+  end
+
+  def get_local_uid(name) do
+    name = {:via, Registry, {Rax.Cluster.Registry, name}}
+    GenServer.call(name, :get_local_uid)
   end
 
   # GenServer
 
   @spec child_spec(Config.opts()) :: Supervisor.child_spec()
   def child_spec(opts) do
-    child_id = String.to_atom(to_string(opts[:cluster_name]) <> "_cluster_manager")
+    child_id = String.to_atom(to_string(opts[:name]) <> "_cluster_manager")
 
     %{
       id: child_id,
@@ -44,8 +53,12 @@ defmodule Rax.Cluster do
 
   @spec init(Config.t()) :: {:ok, Config.t()}
   def init(cluster) do
-    send_start_local_server()
+    send_start_or_restart_local_server()
     {:ok, cluster}
+  end
+
+  def handle_call(:get_local_uid, _from, cluster) do
+    {:reply, cluster.local_uid, cluster}
   end
 
   @spec handle_cast(:request_health_check, Config.t()) :: {:noreply, Config.t()}
@@ -66,7 +79,7 @@ defmodule Rax.Cluster do
     {:noreply, cluster}
   end
 
-  @spec handle_info(:do_health_check | :start_local_server, Config.t()) ::
+  @spec handle_info(:do_health_check | :start_or_restart_local_server, Config.t()) ::
           {:noreply, Config.t()} | {:stop, any, Config.t()}
   def handle_info(:do_health_check, cluster) do
     cluster = check_health(cluster)
@@ -85,8 +98,8 @@ defmodule Rax.Cluster do
     end
   end
 
-  def handle_info(:start_local_server, cluster) do
-    case start_local_server(cluster) do
+  def handle_info(:start_or_restart_local_server, cluster) do
+    case start_or_restart_local_server(cluster) do
       {:ok, cluster} ->
         insert_info(cluster, false)
         send_do_health_check(:now)
@@ -100,14 +113,14 @@ defmodule Rax.Cluster do
   @spec terminate(any, Config.t()) :: :ok
   def terminate(_reason, cluster) do
     if cluster.status != :new do
-      :ra.stop_server(cluster.local_server_id)
+      :ra.stop_server(cluster.local_id)
     end
 
     :ok
   end
 
-  defp send_start_local_server() do
-    send(self(), :start_local_server)
+  defp send_start_or_restart_local_server() do
+    send(self(), :start_or_restart_local_server)
   end
 
   defp send_do_health_check(timing) when timing in [:now, :interval] do
@@ -122,39 +135,40 @@ defmodule Rax.Cluster do
 
   # Interaction with :ra
 
-  defp start_local_server(cluster) do
-    case :ra.restart_server(cluster.local_server_id) do
+  defp start_or_restart_local_server(cluster) do
+    case :ra.restart_server(cluster.local_id) do
       :ok ->
         {:ok, %Config{cluster | status: :started}}
 
       {:error, _e} ->
-        cluster
-        |> Config.to_ra_server_config()
-        |> :ra.start_server()
-        |> case do
-          :ok ->
-            {:ok, %Config{cluster | status: :started}}
+        start_local_server(cluster)
+    end
+  end
 
-          error ->
-            error
-        end
+  defp start_local_server(cluster) do
+    case Config.to_ra_server_config(cluster) |> :ra.start_server() do
+      :ok ->
+        {:ok, %Config{cluster | status: :started}}
+
+      error ->
+        error
     end
   end
 
   defp check_health(cluster) do
     connect_initial_nodes(cluster)
-    server_id = cluster.local_server_id
+    server_id = cluster.local_id
 
-    case Enum.sort(cluster.initial_members) |> hd() do
-      ^server_id ->
-        cluster
-        |> evaluate_health()
-        |> maybe_trigger_election(server_id)
-
-      server_to_call ->
-        cluster
-        |> evaluate_health()
-        |> maybe_add_member(server_to_call)
+    if Enum.sort(cluster.initial_members) |> hd() == server_id do
+      cluster
+      |> evaluate_health()
+      |> maybe_trigger_election(server_id)
+    else
+      server_to_call = Enum.shuffle(cluster.initial_members) |> hd()
+      Logger.debug "server to call: #{inspect server_to_call}"
+      cluster
+      |> evaluate_health()
+      |> maybe_add_member(server_to_call)
     end
   end
 
@@ -162,7 +176,7 @@ defmodule Rax.Cluster do
     log_line = "\r\n== Rax health check results for #{inspect(cluster.name)} ==\r\n"
 
     case ping(cluster) do
-      {:ok, leader} ->
+      {:pong, leader} ->
         Logger.info(log_line <> "leader: #{inspect(leader)}")
         %Config{cluster | status: :ready}
 
@@ -176,11 +190,20 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp ping(%Config{name: cluster_name, local_server_id: from} = c) do
-    Logger.warn(inspect c)
-    case :ra.process_command(cluster_name, {:"$rax_cmd", :ping, from}) do
+  defp ping(%Config{name: name, local_id: from}) do
+    leader_id = :ra_leaderboard.lookup_leader(name)
+
+    if leader_id == :undefined do
+      {:error, :leader_undefined}
+    else
+      do_ping(leader_id, from)
+    end
+  end
+
+  defp do_ping(to, from) do
+    case :ra.process_command(to, {:"$rax_cmd", :ping, from}) do
       {:ok, ^from, leader} ->
-        {:ok, leader}
+        {:pong, leader}
 
       error ->
         error
@@ -201,7 +224,7 @@ defmodule Rax.Cluster do
   end
 
   defp maybe_add_member(%Config{} = cluster, server_id) do
-    case :ra.add_member(server_id, cluster.local_server_id) do
+    case :ra.add_member(server_id, cluster.local_id) do
       {:ok, _, _} ->
         %Config{cluster | status: :ready}
 
@@ -232,31 +255,31 @@ defmodule Rax.Cluster do
   end
 
   @doc false
-  def lookup_info(cluster_name) do
-    :ets.lookup(__MODULE__, cluster_name)
+  def lookup_info(name) do
+    :ets.lookup(__MODULE__, name)
   end
 
   defp insert_info(%Config{} = c, available?) do
-    true = :ets.insert(__MODULE__, {c.name, c.local_server_id, c.timeout, c.retry, available?})
+    true = :ets.insert(__MODULE__, {c.name, c.local_id, c.timeout, c.retry, available?})
     :ok
   end
 
-  defp set_available(cluster_name) do
-    case :ets.update_element(__MODULE__, cluster_name, {5, true}) do
+  defp set_available(name) do
+    case :ets.update_element(__MODULE__, name, {5, true}) do
       false ->
         raise ArgumentError,
-          message: "Rax #{inspect(cluster_name)} cluster is not initialized on this node"
+          message: "Rax #{inspect(name)} cluster is not initialized on this node"
 
       true ->
         :ok
     end
   end
 
-  defp set_unavailable(cluster_name) do
-    case :ets.update_element(__MODULE__, cluster_name, {5, false}) do
+  defp set_unavailable(name) do
+    case :ets.update_element(__MODULE__, name, {5, false}) do
       false ->
         raise ArgumentError,
-          message: "Rax #{inspect(cluster_name)} cluster is not initialized on this node"
+          message: "Rax #{inspect(name)} cluster is not initialized on this node"
 
       true ->
         :ok

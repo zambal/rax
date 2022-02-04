@@ -1,5 +1,5 @@
 %{
-  "aten": {:hex, :aten, "0.5.5", "25f619b171f673bbf35be7de2323102fff731bf832d7f2eade4db6e43d48226f", [:rebar3], [], "hexpm", "ac1d4143b06ee547efada2eac57efe744362a35a9ab5d52ef61d054af8028117"},
-  "gen_batch_server": {:hex, :gen_batch_server, "0.8.4", "20535e9dbd4dc234e63b3df79ba65d8a770396b2cad6b4068a1e37e3ae010900", [:rebar3], [], "hexpm", "ff6b0ed0f7be945f38b94ddd4784d128f35ff029c34dad6ca0c6cb17ab7bc9c4"},
-  "ra": {:hex, :ra, "1.1.8", "f5334ca94eac3da159b3f79769ac480dbe5cc838807517f38fca3931da5b362c", [:rebar3], [{:aten, "0.5.5", [hex: :aten, repo: "hexpm", optional: false]}, {:gen_batch_server, "0.8.4", [hex: :gen_batch_server, repo: "hexpm", optional: false]}], "hexpm", "d7e399f8a09c8420bc90953f3464127063e53cef39f27e0af452ec51ad26ea9e"},
+  "aten": {:hex, :aten, "0.5.7", "f88eb38ceadc0710b84b5d78f0357d766733d80902d50ac69b70cdf834992daa", [:rebar3], [], "hexpm", "8b623c8be27b59a911d16ab0af41777b504c147bc0d60a29015fab58321c04b0"},
+  "gen_batch_server": {:hex, :gen_batch_server, "0.8.7", "1d91a3605d3110ec791f00d5968e86e62fd4c6979e760796a51d50a7acc7a40d", [:rebar3], [], "hexpm", "94a49a528486298b009d2a1b452132c0a0d68b3e89d17d3764cb1ec879b7557a"},
+  "ra": {:hex, :ra, "2.0.4", "9ef24af930c699bccb12516ca91db8255093e4df560baf54c65d45372e73639e", [:rebar3], [{:aten, "0.5.7", [hex: :aten, repo: "hexpm", optional: false]}, {:gen_batch_server, "0.8.7", [hex: :gen_batch_server, repo: "hexpm", optional: false]}], "hexpm", "8e3550be1df23b5b1ba9d02e0c8c79febb8eae8a6dcbbba746bd5180f39aee1c"},
 }

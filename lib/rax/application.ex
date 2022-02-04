@@ -4,6 +4,7 @@ defmodule Rax.Application do
   use Application
 
   def start(_type, _args) do
+    :ok = :ra.start()
     Rax.Cluster.create_info_table()
 
     children = [

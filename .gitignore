@@ -24,3 +24,13 @@ rax-*.tar
 
 # Ignore test config.exs
 /config/config.exs
+
+# Ignore test ra logs
+/t1@local/
+/t2@local/
+/t3@local/
+/t4@local/
+/t5@local/
+/t6@local/
+/t7@local/
+/t8@local/

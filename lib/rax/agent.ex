@@ -1,6 +1,7 @@
 defmodule Rax.Agent do
-  require Logger
+  # API
 
+  @spec new(Rax.Cluster.name(), any, any) :: any
   def new(cluster, agent, fun) do
     Rax.call(cluster, {:new, agent, fun})
     |> handle_result()
@@ -52,26 +53,15 @@ defmodule Rax.Agent do
     Rax.call(cluster, {:set_auto_snapshot, n})
   end
 
-  defp call(agent, fun, state) do
-    if agent_state = Map.get(state, agent) do
-      {:ok, fun.(agent_state)}
-    else
-      {:error, :no_agent, agent}
-    end
-  end
-
   defp handle_result(:ok), do: :ok
   defp handle_result({:ok, value}), do: value
 
   defp handle_result({:error, :no_agent, agent}),
     do: raise(ArgumentError, message: "agent not found: #{inspect(agent)}")
 
-  defp handle_result({:error, :badarg}), do: raise(ArgumentError)
-  defp handle_result({:error, :error, ex}), do: raise(Exception.normalize(:error, ex))
-  defp handle_result({:error, :exit, reason}), do: exit(reason)
-  defp handle_result({:error, :throw, value}), do: throw(value)
-
   # State Machine
+
+  use Rax.Machine
 
   def init(opts), do: %{agents: %{}, auto_snapshot: opts[:auto_snapshot]}
 
@@ -110,12 +100,25 @@ defmodule Rax.Agent do
     |> handle_update_result(agent, state)
   end
 
+  def apply(meta, cmd, state) do
+    super(meta, cmd, state)
+  end
+
+  defp call(agent, fun, state) do
+    if agent_state = Map.get(state, agent) do
+      {:ok, fun.(agent_state)}
+    else
+      {:error, :no_agent, agent}
+    end
+  end
+
   defp handle_get_and_update_result({:ok, {reply, agent_state}}, agent, state) do
     {put_in(state, [:agents, agent], agent_state), {:ok, reply}}
   end
 
-  defp handle_get_and_update_result({:ok, _badarg}, _agent, state) do
-    {state, {:error, :badarg}}
+  defp handle_get_and_update_result({:ok, badret}, _agent, _state) do
+    raise ArgumentError,
+      message: "bad return value from agent, expected {reply, state}, got: #{inspect(badret)}"
   end
 
   defp handle_get_and_update_result(error, _agent, state) do

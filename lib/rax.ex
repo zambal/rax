@@ -5,18 +5,13 @@ defmodule Rax do
 
   require Logger
 
-  alias Rax.{Cluster, Request}
-
-  @type cluster_name :: atom()
-  @type node_name :: atom()
-  @type machine :: {module(), map()}
-  @type cluster_states :: :new | :started | :health_check | :ready
+  alias Rax.{Cluster, Machine, Request}
 
   defmodule TimeoutError do
     defexception [:message]
   end
 
-  @spec call(cluster_name(), term()) :: term()
+  @spec call(Cluster.name(), Machine.cmd()) :: term()
   def call(cluster, cmd) do
     Request.new(cluster, &call/1, cmd)
     |> call()
@@ -34,7 +29,7 @@ defmodule Rax do
     {:ra.process_command(req.leader_id, req.arg, req.timeout), req}
   end
 
-  @spec cast(cluster_name(), term()) :: :ok
+  @spec cast(Cluster.name(), Machine.cmd()) :: :ok
   def cast(cluster, cmd) do
     leader = :ra_leaderboard.lookup_leader(cluster)
 
@@ -45,9 +40,9 @@ defmodule Rax do
     :ok
   end
 
-  @spec query(cluster_name(), :ra.query_fun()) :: term()
+  @spec query(Cluster.name(), :ra.query_fun()) :: term()
   def query(cluster, query_fun) when is_function(query_fun, 1) do
-    Request.new(cluster, &query/1, fn s -> query_fun.(s.machine_state) end)
+    Request.new(cluster, &query/1, query_fun)
     |> query()
   end
 
@@ -63,10 +58,10 @@ defmodule Rax do
     {:ra.consistent_query(req.leader_id, req.arg, req.timeout), req}
   end
 
-  @spec local_query(cluster_name(), :ra.query_fun()) :: term()
+  @spec local_query(Cluster.name(), :ra.query_fun()) :: term()
   def local_query(cluster, query_fun) when is_function(query_fun, 1) do
     {_idx_term, reply} =
-      Request.new(cluster, &local_query/1, fn s -> query_fun.(s.machine_state) end)
+      Request.new(cluster, &local_query/1, query_fun)
       |> local_query()
 
     reply
@@ -80,7 +75,8 @@ defmodule Rax do
     {:ra.local_query(req.local_id, req.arg, req.timeout), req}
   end
 
-  @spec members(cluster_name(), timeout() | nil) :: :ra_server_proc.ra_leader_call_ret([:ra.server_id()])
+  @spec members(Cluster.name(), timeout() | nil) ::
+          :ra_server_proc.ra_leader_call_ret([:ra.server_id()])
   def members(cluster, timeout \\ nil) do
     req = Request.new(cluster, nil, nil, true)
     :ra.members(req.local_id, timeout || req.timeout)

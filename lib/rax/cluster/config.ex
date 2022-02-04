@@ -4,8 +4,8 @@ defmodule Rax.Cluster.Config do
   alias __MODULE__
 
   defstruct name: nil,
-            local_server_id: nil,
-            local_server_uid: nil,
+            local_id: nil,
+            local_uid: nil,
             initial_members: [],
             machine: nil,
             status: :new,
@@ -17,9 +17,9 @@ defmodule Rax.Cluster.Config do
   @type retry :: {non_neg_integer(), non_neg_integer()}
 
   @type option ::
-          {:cluster_name, Rax.cluster_name()}
-          | {:initial_members, nonempty_list(node)}
-          | {:machine, module() | Rax.machine()}
+          {:name, Rax.Cluster.name()}
+          | {:initial_members, nonempty_list(Rax.Cluster.node())}
+          | {:machine, module() | {module(), map()}}
           | {:timeout, non_neg_integer()}
           | {:circuit_breaker, boolean()}
           | {:auto_snapshot, pos_integer() | false}
@@ -37,12 +37,12 @@ defmodule Rax.Cluster.Config do
           | :invalid_retry
 
   @type t :: %Config{
-          name: Rax.cluster_name(),
-          local_server_id: :ra.server_id(),
-          local_server_uid: String.t(),
+          name: Rax.Cluster.name(),
+          local_id: :ra.server_id(),
+          local_uid: String.t(),
           initial_members: [:ra.server_id()],
-          machine: Rax.machine(),
-          status: Rax.cluster_states(),
+          machine: :ra_machine.machine(),
+          status: Rax.Cluster.status(),
           timeout: timeout(),
           circuit_breaker: boolean(),
           auto_snapshot: pos_integer() | false,
@@ -63,28 +63,22 @@ defmodule Rax.Cluster.Config do
 
   @spec to_ra_server_config(t()) :: map()
   def to_ra_server_config(%Config{} = cluster) do
-    opts = %{
-      cluster_name: cluster.name,
-      machine: cluster.machine,
-      auto_snapshot: cluster.auto_snapshot
-    }
-
     %{
       cluster_name: cluster.name,
-      id: cluster.local_server_id,
-      uid: cluster.local_server_uid,
+      id: cluster.local_id,
+      uid: cluster.local_uid,
       initial_members: cluster.initial_members,
-      machine: {:module, Rax.Machine, opts},
-      log_init_args: %{uid: cluster.local_server_uid}
+      machine: cluster.machine,
+      log_init_args: %{uid: cluster.local_uid}
     }
   end
 
   defp validate_cluster_name({:ok, cluster}, opts) do
-    case opts[:cluster_name] do
+    case opts[:name] do
       name when is_atom(name) and not is_nil(name) ->
         server_id = make_server_id(node(), name)
         uid = name |> to_string() |> :ra.new_uid()
-        {:ok, %Config{cluster | name: name, local_server_id: server_id, local_server_uid: uid}}
+        {:ok, %Config{cluster | name: name, local_id: server_id, local_uid: uid}}
 
       _ ->
         {:error, :invalid_cluster_name}
@@ -113,10 +107,10 @@ defmodule Rax.Cluster.Config do
   defp validate_machine({:ok, cluster}, opts) do
     case opts[:machine] do
       {mod, conf} when is_atom(mod) and is_map(conf) ->
-        {:ok, %Config{cluster | machine: {mod, conf}}}
+        {:ok, %Config{cluster | machine: {:module, mod, conf}}}
 
       mod when not is_nil(mod) and is_atom(mod) ->
-        {:ok, %Config{cluster | machine: {mod, %{}}}}
+        {:ok, %Config{cluster | machine: {:module, mod, %{}}}}
 
       _ ->
         {:error, :invalid_machine_config}

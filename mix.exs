@@ -23,7 +23,7 @@ defmodule Rax.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ra, "~> 1.1"}
+      {:ra, "~> 2.0"}
     ]
   end
 end
