@@ -4,7 +4,8 @@ defmodule Rax.Application do
   use Application
 
   def start(_type, _args) do
-    :ok = :ra.start()
+    env_opts = Application.get_env(:rax, :env, [])
+    {:ok, _} = :ra.start(env_opts)
     Rax.Cluster.create_info_table()
 
     children = [
