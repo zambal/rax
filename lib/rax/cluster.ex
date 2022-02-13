@@ -8,7 +8,7 @@ defmodule Rax.Cluster do
 
   @type name :: atom()
   @type cluster_node :: node() | atom()
-  @type status :: :new | :started | :health_check | :ready
+  @type status :: :new | :started | :health_check | :ready | :recover
 
   # API
 
@@ -63,7 +63,7 @@ defmodule Rax.Cluster do
 
   @spec handle_cast(:request_health_check, Config.t()) :: {:noreply, Config.t()}
   def handle_cast(:request_health_check, cluster) do
-    if cluster.status != :health_check do
+    if cluster.status not in [:health_check, :recover] do
       if cluster.circuit_breaker do
         set_unavailable(cluster.name)
 
@@ -175,17 +175,29 @@ defmodule Rax.Cluster do
   defp evaluate_health(cluster) do
     log_line = "\r\n== Rax health check results for #{inspect(cluster.name)} ==\r\n"
 
-    case ping(cluster) do
-      {:pong, leader} ->
-        Logger.info(log_line <> "leader: #{inspect(leader)}")
-        %Config{cluster | status: :ready}
+    case get_ra_server_overview(cluster) do
+      %{state: status} = overview when status in [:leader, :follower] ->
+        log_line = log_line <> "ra server overview: #{inspect overview}\n"
+        case ping(cluster) do
+          {:pong, leader} ->
+            Logger.info(log_line <> "leader: #{inspect(leader)}")
+            %Config{cluster | status: :ready}
 
-      {:timeout, server_id} ->
-        Logger.info(log_line <> "timeout: #{inspect(server_id)}")
-        %Config{cluster | status: :health_check}
+          {:timeout, server_id} ->
+            Logger.info(log_line <> "timeout: #{inspect(server_id)}")
+            %Config{cluster | status: :health_check}
 
-      {:error, e} ->
-        Logger.info(log_line <> "error: #{inspect(e)}")
+          {:error, e} ->
+            Logger.info(log_line <> "error: #{inspect(e)}")
+            %Config{cluster | status: :health_check}
+        end
+
+      %{state: :recover} = overview ->
+        Logger.info(log_line <> "ra server overview: #{inspect overview}\nRECOVERING")
+        %Config{cluster | status: :recover}
+
+      overview ->
+        Logger.info(log_line <> "ra server overview: #{inspect overview}")
         %Config{cluster | status: :health_check}
     end
   end
@@ -210,7 +222,7 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp maybe_trigger_election(%Config{status: :ready} = cluster, _server_id) do
+  defp maybe_trigger_election(%Config{status: st} = cluster, _server_id) when st in [:ready, :recover] do
     cluster
   end
 
@@ -219,7 +231,7 @@ defmodule Rax.Cluster do
     cluster
   end
 
-  defp maybe_add_member(%Config{status: :ready} = cluster, _server_id) do
+  defp maybe_add_member(%Config{status: st} = cluster, _server_id) when st in [:ready, :recover] do
     cluster
   end
 
@@ -238,6 +250,16 @@ defmodule Rax.Cluster do
 
   defp connect_initial_nodes(%Config{initial_members: members}) do
     Enum.each(members, fn {_id, node} -> Node.connect(node) end)
+  end
+
+  defp get_ra_server_overview(%Config{name: name}) do
+    case :ra.overview do
+      %{servers: %{^name => status}} ->
+        status
+
+      _ ->
+        nil
+    end
   end
 
   # Ckuster info ETS table management

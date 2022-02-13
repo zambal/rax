@@ -102,6 +102,7 @@ defmodule Rax.Scheduler do
     super(meta, cmd, state)
   end
 
+  @doc false
   def state_enter(:leader, state) do
     for {name, {_fun, opts}} <- state do
       interval = Keyword.fetch!(opts, :interval)
