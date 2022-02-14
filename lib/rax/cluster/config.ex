@@ -12,6 +12,7 @@ defmodule Rax.Cluster.Config do
             timeout: 5_000,
             circuit_breaker: false,
             auto_snapshot: false,
+            snapshot_interval: 4096,
             retry: {0, 0}
 
   @type retry :: {non_neg_integer(), non_neg_integer()}
@@ -23,6 +24,7 @@ defmodule Rax.Cluster.Config do
           | {:timeout, non_neg_integer()}
           | {:circuit_breaker, boolean()}
           | {:auto_snapshot, pos_integer() | false}
+          | {:snapshot_interval, pos_integer()}
           | {:retry, retry() | false}
 
   @type opts :: [option]
@@ -46,6 +48,7 @@ defmodule Rax.Cluster.Config do
           timeout: timeout(),
           circuit_breaker: boolean(),
           auto_snapshot: pos_integer() | false,
+          snapshot_interval: non_neg_integer(),
           retry: retry()
         }
 
@@ -58,6 +61,7 @@ defmodule Rax.Cluster.Config do
     |> validate_timeout(opts)
     |> validate_circuit_breaker(opts)
     |> validate_auto_snapshot(opts)
+    |> validate_snapshot_interval(opts)
     |> validate_retry(opts)
   end
 
@@ -168,6 +172,25 @@ defmodule Rax.Cluster.Config do
   defp validate_auto_snapshot({:error, e}, _opts) do
     {:error, e}
   end
+
+  defp validate_snapshot_interval({:ok, cluster}, opts) do
+    case opts[:snapshot_interval] do
+      n when is_integer(n) and n > 0 ->
+        {:ok, %Config{cluster | snapshot_interval: n}}
+
+      nil ->
+        # default value from ra
+        {:ok, %Config{cluster | snapshot_interval: 4096}}
+
+      _ ->
+        {:error, :invalid_snapshot_interval}
+    end
+  end
+
+  defp validate_snapshot_interval({:error, e}, _opts) do
+    {:error, e}
+  end
+
 
   defp validate_retry({:ok, cluster}, opts) do
     case opts[:retry] do
