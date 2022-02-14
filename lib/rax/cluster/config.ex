@@ -73,7 +73,7 @@ defmodule Rax.Cluster.Config do
       uid: cluster.local_uid,
       initial_members: cluster.initial_members,
       machine: cluster.machine,
-      log_init_args: %{uid: cluster.local_uid}
+      log_init_args: %{uid: cluster.local_uid, snapshot_interval: cluster.snapshot_interval}
     }
   end
 
