@@ -173,7 +173,7 @@ defmodule Rax.Cluster do
   end
 
   defp evaluate_health(cluster) do
-    log_line = "\r\n== Rax health check results for #{inspect(cluster.name)} ==\r\n"
+    log_line = "\r\n== Rax health check results for #{inspect(cluster.name)} at #{node()}==\r\n"
 
     case get_ra_server_overview(cluster) do
       %{state: status} = overview when status in [:leader, :follower] ->
