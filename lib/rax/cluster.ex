@@ -4,7 +4,7 @@ defmodule Rax.Cluster do
   alias Rax.Cluster.Config
   require Logger
 
-  @health_check_interval 4_000
+  @health_check_interval 3_000
 
   @type name :: atom()
   @type cluster_node :: node() | atom()
@@ -52,7 +52,7 @@ defmodule Rax.Cluster do
   end
 
   def init(cluster) do
-    send_start_or_restart_local_server()
+    send_start_or_restart_server()
     {:ok, cluster}
   end
 
@@ -61,7 +61,7 @@ defmodule Rax.Cluster do
   end
 
   def handle_cast(:request_health_check, cluster) do
-    if cluster.status not in [:health_check, :recover, :pre_vote] do
+    if cluster.status != :health_check do
       if cluster.circuit_breaker do
         set_unavailable(cluster.name)
 
@@ -94,8 +94,8 @@ defmodule Rax.Cluster do
     end
   end
 
-  def handle_info(:start_or_restart_local_server, cluster) do
-    case start_or_restart_local_server(cluster) do
+  def handle_info(:start_or_restart_server, cluster) do
+    case start_or_restart_server(cluster) do
       {:ok, cluster} ->
         insert_info(cluster, false)
         send_do_health_check(:now)
@@ -114,8 +114,8 @@ defmodule Rax.Cluster do
     :ok
   end
 
-  defp send_start_or_restart_local_server() do
-    send(self(), :start_or_restart_local_server)
+  defp send_start_or_restart_server() do
+    send(self(), :start_or_restart_server)
   end
 
   defp send_do_health_check(timing) when timing in [:now, :interval] do
@@ -130,18 +130,21 @@ defmodule Rax.Cluster do
 
   # Interaction with :ra
 
-  defp start_or_restart_local_server(cluster) do
+  defp start_or_restart_server(cluster) do
     case :ra.restart_server(cluster.local_id) do
       :ok ->
         Logger.info("Rax #{inspect(cluster.name)} #{node()}: Server restarted")
         {:ok, %Config{cluster | status: :restarted}}
 
-      {:error, _e} ->
-        start_local_server(cluster)
+      {:error, :name_not_registered} ->
+        start_server(cluster)
+
+      {:error, e} ->
+        {:error, e}
     end
   end
 
-  defp start_local_server(%Config{initial_member: initial_member, local_id: initial_member} = cluster) do
+  defp start_server(%Config{initial_member: m, local_id: m} = cluster) do
     ra_server_config = Config.to_ra_server_config(cluster)
     case :ra.start_cluster(:default, [ra_server_config]) do
       {:ok, _, _} ->
@@ -153,8 +156,9 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp start_local_server(cluster) do
-    case Config.to_ra_server_config(cluster) |> :ra.start_server() do
+  defp start_server(cluster) do
+    ra_server_config = Config.to_ra_server_config(cluster)
+    case :ra.start_server(ra_server_config) do
       :ok ->
         Logger.info("Rax #{inspect(cluster.name)} #{node()}: Server started")
         {:ok, %Config{cluster | status: :started}}
@@ -177,7 +181,7 @@ defmodule Rax.Cluster do
         end
 
       server_to_call ->
-        cluster |> evaluate_health() |> handle_status(server_to_call, cluster.status == :started)
+        cluster |> evaluate_health() |> maybe_add_member(server_to_call, cluster.status == :started)
     end
   end
 
@@ -185,24 +189,15 @@ defmodule Rax.Cluster do
     log_line = "\r\n== Rax health check results for #{inspect(cluster.name)} at #{node()}==\r\n"
 
     case get_ra_server_overview(cluster) do
-      %{state: :recover} = overview ->
-        Logger.info(log_line <> "ra server overview: #{inspect overview}")
-        %Config{cluster | status: :recover}
-
-      %{state: :pre_vote} = overview ->
-        Logger.info(log_line <> "ra server overview: #{inspect overview}")
-        %Config{cluster | status: :pre_vote}
-
-
       %{state: status} = overview when status in [:leader, :follower] ->
         Logger.info(log_line <> "ra server overview: #{inspect overview}")
         case ping(cluster) do
           {:pong, leader} ->
-            Logger.debug("leader: #{inspect(leader)}")
+            Logger.debug("#{inspect(leader)} leader")
             %Config{cluster | status: :ready}
 
           {:timeout, server_id} ->
-            Logger.debug("timeout: #{inspect(server_id)}")
+            Logger.debug("#{inspect(server_id)} timeout")
             %Config{cluster | status: :health_check}
 
           {:error, e} ->
@@ -236,12 +231,12 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp handle_status(%Config{local_id: local_id} = cluster, server_id, true) do
+  defp maybe_add_member(%Config{local_id: local_id, initial_member: m} = cluster, server_id, true) when local_id != m do
     :ra.add_member(server_id, local_id)
     cluster
   end
 
-  defp handle_status(cluster, _server_id, _started?) do
+  defp maybe_add_member(cluster, _server_id, _started?) do
     cluster
   end
 
