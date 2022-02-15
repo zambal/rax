@@ -1,4 +1,4 @@
-defmodule Rax.Scheduler do
+defmodule Rax.Timer do
   require Logger
 
   # API
@@ -127,13 +127,13 @@ defmodule Rax.Scheduler do
           :ok
         catch
           type, reason ->
-            Logger.error("Rax Scheduler timer fun #{inspect type} with reason: #{inspect reason}\n#{inspect __STACKTRACE__}")
+            Logger.error("Rax Timer fun #{inspect type} with reason: #{inspect reason}\n#{inspect __STACKTRACE__}")
             :error
         end
       end
 
     if opts[:exclusive] do
-      {:cont, {:mod_call, Rax.Scheduler, :apply_fun, [f]}}
+      {:cont, {:mod_call, Rax.Timer, :apply_fun, [f]}}
     else
       f.()
     end
