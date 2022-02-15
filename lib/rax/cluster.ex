@@ -8,7 +8,7 @@ defmodule Rax.Cluster do
 
   @type name :: atom()
   @type cluster_node :: node() | atom()
-  @type status :: :new | :started | :health_check | :ready | :recover | :pre_vote
+  @type status :: :new | :started | :health_check | :ready
 
   # API
 
