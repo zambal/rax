@@ -6,7 +6,8 @@ defmodule Rax.Cluster.Config do
   defstruct name: nil,
             local_id: nil,
             local_uid: nil,
-            initial_members: [],
+            initial_member: nil,
+            known_members: [],
             machine: nil,
             status: :new,
             timeout: 5_000,
@@ -19,7 +20,8 @@ defmodule Rax.Cluster.Config do
 
   @type option ::
           {:name, Rax.Cluster.name()}
-          | {:initial_members, nonempty_list(Rax.Cluster.node())}
+          | {:initial_member, Rax.Cluster.node()}
+          | {:known_members, nonempty_list(Rax.Cluster.node())}
           | {:machine, module() | {module(), map()}}
           | {:timeout, non_neg_integer()}
           | {:circuit_breaker, boolean()}
@@ -31,7 +33,7 @@ defmodule Rax.Cluster.Config do
 
   @type validation_error ::
           :invalid_cluster_name
-          | :invalid_initial_members
+          | :invalid_initial_member
           | :invalid_machine
           | :invalid_timeout
           | :invalid_circuit_breaker
@@ -42,7 +44,8 @@ defmodule Rax.Cluster.Config do
           name: Rax.Cluster.name(),
           local_id: :ra.server_id(),
           local_uid: String.t(),
-          initial_members: [:ra.server_id()],
+          initial_member: :ra.server_id(),
+          known_members: [:ra.server_id()],
           machine: :ra_machine.machine(),
           status: Rax.Cluster.status(),
           timeout: timeout(),
@@ -56,7 +59,8 @@ defmodule Rax.Cluster.Config do
   def new(opts) do
     {:ok, %Config{}}
     |> validate_cluster_name(opts)
-    |> validate_initial_members(opts)
+    |> validate_initial_member(opts)
+    |> validate_known_members(opts)
     |> validate_machine(opts)
     |> validate_timeout(opts)
     |> validate_circuit_breaker(opts)
@@ -71,7 +75,7 @@ defmodule Rax.Cluster.Config do
       cluster_name: cluster.name,
       id: cluster.local_id,
       uid: cluster.local_uid,
-      initial_members: cluster.initial_members,
+      initial_members: [cluster.initial_member],
       machine: cluster.machine,
       log_init_args: %{uid: cluster.local_uid, snapshot_interval: cluster.snapshot_interval}
     }
@@ -89,22 +93,37 @@ defmodule Rax.Cluster.Config do
     end
   end
 
-  defp validate_initial_members({:ok, cluster}, opts) do
-    case opts[:initial_members] do
-      members when is_list(members) and length(members) > 0 ->
-        if Enum.all?(members, &is_atom/1) do
-          server_ids = for m <- members, do: make_server_id(m, cluster.name)
-          {:ok, %Config{cluster | initial_members: server_ids}}
-        else
-          {:error, :invalid_initial_members}
-        end
+  defp validate_initial_member({:ok, cluster}, opts) do
+    case opts[:initial_member] do
+      member when is_atom(member) ->
+        server_id = make_server_id(member, cluster.name)
+        {:ok, %Config{cluster | initial_member: server_id}}
 
       _ ->
-        {:error, :invalid_initial_members}
+        {:error, :invalid_initial_member}
     end
   end
 
-  defp validate_initial_members({:error, e}, _opts) do
+  defp validate_initial_member({:error, e}, _opts) do
+    {:error, e}
+  end
+
+  defp validate_known_members({:ok, cluster}, opts) do
+    case opts[:known_members] do
+      members when is_list(members) and length(members) > 0 ->
+        if Enum.all?(members, &short_name?/1) or Enum.all?(members, &full_name?/1) do
+          members = for m <- members, do: make_server_id(m, cluster.name)
+          {:ok, %Config{cluster | known_members: members}}
+        else
+          {:error, :invalid_known_members}
+        end
+
+      _ ->
+        {:error, :invalid_known_members}
+    end
+  end
+
+  defp validate_known_members({:error, e}, _opts) do
     {:error, e}
   end
 
@@ -221,4 +240,28 @@ defmodule Rax.Cluster.Config do
         {name, String.to_atom(str_node <> "@" <> host)}
     end
   end
+
+  defp short_name?(node) when is_atom(node) do
+    case node |> Atom.to_string() |> String.split("@") do
+      [_node] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp short_name?(_badarg), do: false
+
+  defp full_name?(node) when is_atom(node) do
+    case node |> Atom.to_string() |> String.split("@") do
+      [_name, _host] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp full_name?(_badarg), do: false
 end

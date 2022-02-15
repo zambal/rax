@@ -4,11 +4,11 @@ defmodule Rax.Cluster do
   alias Rax.Cluster.Config
   require Logger
 
-  @health_check_interval 3_000
+  @health_check_interval 4_000
 
   @type name :: atom()
   @type cluster_node :: node() | atom()
-  @type status :: :new | :started | :health_check | :ready | :recover
+  @type status :: :new | :started | :health_check | :ready | :recover | :pre_vote
 
   # API
 
@@ -51,7 +51,6 @@ defmodule Rax.Cluster do
     end
   end
 
-  @spec init(Config.t()) :: {:ok, Config.t()}
   def init(cluster) do
     send_start_or_restart_local_server()
     {:ok, cluster}
@@ -61,9 +60,8 @@ defmodule Rax.Cluster do
     {:reply, cluster.local_uid, cluster}
   end
 
-  @spec handle_cast(:request_health_check, Config.t()) :: {:noreply, Config.t()}
   def handle_cast(:request_health_check, cluster) do
-    if cluster.status not in [:health_check, :recover] do
+    if cluster.status not in [:health_check, :recover, :pre_vote] do
       if cluster.circuit_breaker do
         set_unavailable(cluster.name)
 
@@ -79,8 +77,6 @@ defmodule Rax.Cluster do
     {:noreply, cluster}
   end
 
-  @spec handle_info(:do_health_check | :start_or_restart_local_server, Config.t()) ::
-          {:noreply, Config.t()} | {:stop, any, Config.t()}
   def handle_info(:do_health_check, cluster) do
     cluster = check_health(cluster)
 
@@ -110,7 +106,6 @@ defmodule Rax.Cluster do
     end
   end
 
-  @spec terminate(any, Config.t()) :: :ok
   def terminate(_reason, cluster) do
     if cluster.status != :new do
       :ra.stop_server(cluster.local_id)
@@ -138,16 +133,30 @@ defmodule Rax.Cluster do
   defp start_or_restart_local_server(cluster) do
     case :ra.restart_server(cluster.local_id) do
       :ok ->
-        {:ok, %Config{cluster | status: :started}}
+        Logger.info("Rax #{inspect(cluster.name)} #{node()}: Server restarted")
+        {:ok, %Config{cluster | status: :restarted}}
 
       {:error, _e} ->
         start_local_server(cluster)
     end
   end
 
+  defp start_local_server(%Config{initial_member: initial_member, local_id: initial_member} = cluster) do
+    ra_server_config = Config.to_ra_server_config(cluster)
+    case :ra.start_cluster(:default, [ra_server_config]) do
+      {:ok, _, _} ->
+        Logger.info("Rax #{inspect(cluster.name)} #{node()}: Cluster started")
+        {:ok, %Config{cluster | status: :started}}
+
+      error ->
+        error
+    end
+  end
+
   defp start_local_server(cluster) do
     case Config.to_ra_server_config(cluster) |> :ra.start_server() do
       :ok ->
+        Logger.info("Rax #{inspect(cluster.name)} #{node()}: Server started")
         {:ok, %Config{cluster | status: :started}}
 
       error ->
@@ -156,19 +165,19 @@ defmodule Rax.Cluster do
   end
 
   defp check_health(cluster) do
-    connect_initial_nodes(cluster)
-    server_id = cluster.local_id
+    connected_nodes =
+      connect_known_members(cluster)
 
-    if Enum.sort(cluster.initial_members) |> hd() == server_id do
-      cluster
-      |> evaluate_health()
-      |> maybe_trigger_election(server_id)
-    else
-      server_to_call = Enum.shuffle(cluster.initial_members) |> hd()
-      Logger.debug "server to call: #{inspect server_to_call}"
-      cluster
-      |> evaluate_health()
-      |> maybe_add_member(server_to_call)
+    case pick_random_member(cluster, connected_nodes) do
+      nil ->
+        if cluster.status == :ready do
+          %Config{cluster | status: :health_check}
+        else
+          cluster
+        end
+
+      server_to_call ->
+        cluster |> evaluate_health() |> handle_status(server_to_call, cluster.status == :started)
     end
   end
 
@@ -176,25 +185,30 @@ defmodule Rax.Cluster do
     log_line = "\r\n== Rax health check results for #{inspect(cluster.name)} at #{node()}==\r\n"
 
     case get_ra_server_overview(cluster) do
+      %{state: :recover} = overview ->
+        Logger.info(log_line <> "ra server overview: #{inspect overview}")
+        %Config{cluster | status: :recover}
+
+      %{state: :pre_vote} = overview ->
+        Logger.info(log_line <> "ra server overview: #{inspect overview}")
+        %Config{cluster | status: :pre_vote}
+
+
       %{state: status} = overview when status in [:leader, :follower] ->
-        log_line = log_line <> "ra server overview: #{inspect overview}\n"
+        Logger.info(log_line <> "ra server overview: #{inspect overview}")
         case ping(cluster) do
           {:pong, leader} ->
-            Logger.info(log_line <> "leader: #{inspect(leader)}")
+            Logger.debug("leader: #{inspect(leader)}")
             %Config{cluster | status: :ready}
 
           {:timeout, server_id} ->
-            Logger.info(log_line <> "timeout: #{inspect(server_id)}")
+            Logger.debug("timeout: #{inspect(server_id)}")
             %Config{cluster | status: :health_check}
 
           {:error, e} ->
-            Logger.info(log_line <> "error: #{inspect(e)}")
+            Logger.debug("error: #{inspect(e)}")
             %Config{cluster | status: :health_check}
         end
-
-      %{state: :recover} = overview ->
-        Logger.info(log_line <> "ra server overview: #{inspect overview}\nRECOVERING")
-        %Config{cluster | status: :recover}
 
       overview ->
         Logger.info(log_line <> "ra server overview: #{inspect overview}")
@@ -222,34 +236,30 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp maybe_trigger_election(%Config{status: st} = cluster, _server_id) when st in [:ready, :recover] do
+  defp handle_status(%Config{local_id: local_id} = cluster, server_id, true) do
+    :ra.add_member(server_id, local_id)
     cluster
   end
 
-  defp maybe_trigger_election(%Config{} = cluster, server_id) do
-    :ok = :ra.trigger_election(server_id)
+  defp handle_status(cluster, _server_id, _started?) do
     cluster
   end
 
-  defp maybe_add_member(%Config{status: st} = cluster, _server_id) when st in [:ready, :recover] do
-    cluster
-  end
+  defp connect_known_members(%Config{known_members: members}) do
+    self = node()
+    Enum.reduce(members, [], fn {_id, node}, acc ->
+      if node != self do
+        case Node.connect(node) do
+          true ->
+            [node | acc]
 
-  defp maybe_add_member(%Config{} = cluster, server_id) do
-    case :ra.add_member(server_id, cluster.local_id) do
-      {:ok, _, _} ->
-        %Config{cluster | status: :ready}
-
-      {:error, :already_member} ->
-        %Config{cluster | status: :ready}
-
-      _ ->
-        cluster
-    end
-  end
-
-  defp connect_initial_nodes(%Config{initial_members: members}) do
-    Enum.each(members, fn {_id, node} -> Node.connect(node) end)
+          _ ->
+            acc
+        end
+      else
+        acc
+      end
+    end)
   end
 
   defp get_ra_server_overview(%Config{name: name}) do
@@ -259,6 +269,17 @@ defmodule Rax.Cluster do
 
       _ ->
         nil
+    end
+  end
+
+  defp pick_random_member(cluster, connected_nodes) do
+    case connected_nodes |> Enum.filter(fn node -> {_, local_node} = cluster.local_id; node != local_node end) |> Enum.shuffle() do
+      [] ->
+        nil
+
+      nodes ->
+        n = hd(nodes)
+        Enum.find(cluster.known_members, fn {_name, node} -> node == n end)
     end
   end
 
