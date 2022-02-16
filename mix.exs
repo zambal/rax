@@ -11,7 +11,6 @@ defmodule Rax.MixProject do
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
   def application do
     [
       applications: [:ra],
@@ -20,7 +19,6 @@ defmodule Rax.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:ra, "~> 2.0"}
