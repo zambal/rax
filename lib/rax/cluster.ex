@@ -66,8 +66,12 @@ defmodule Rax.Cluster do
     {:reply, cluster.local_uid, cluster}
   end
 
+  def handle_call({:remove_member, member}, _from, cluster) do
+    {:reply, do_remove_member(cluster, member), cluster}
+  end
+
   def handle_cast(:request_health_check, cluster) do
-    if cluster.status != :health_check do
+    if cluster.status == :ready do
       if cluster.circuit_breaker do
         set_unavailable(cluster.name)
 
@@ -175,19 +179,22 @@ defmodule Rax.Cluster do
   end
 
   defp check_health(cluster) do
+    cluster =
+      if cluster.status == :ready do
+        %Config{cluster | status: :health_check}
+      else
+        cluster
+      end
+
     connected_nodes =
       connect_known_members(cluster)
 
     case pick_random_member(cluster, connected_nodes) do
       nil ->
-        if cluster.status == :ready do
-          %Config{cluster | status: :health_check}
-        else
-          cluster
-        end
+        cluster
 
       server_to_call ->
-        cluster |> evaluate_health() |> maybe_add_member(server_to_call, cluster.status == :started)
+        cluster |> evaluate_health() |> maybe_add_member(server_to_call)
     end
   end
 
@@ -204,16 +211,16 @@ defmodule Rax.Cluster do
 
           {:timeout, server_id} ->
             Logger.debug("#{inspect(server_id)} timeout")
-            %Config{cluster | status: :health_check}
+            cluster
 
           {:error, e} ->
             Logger.debug("error: #{inspect(e)}")
-            %Config{cluster | status: :health_check}
+            cluster
         end
 
       overview ->
         Logger.info(log_line <> "ra server overview: #{inspect overview}")
-        %Config{cluster | status: :health_check}
+        cluster
     end
   end
 
@@ -237,12 +244,12 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp maybe_add_member(%Config{local_id: local_id, initial_member: m} = cluster, server_id, true) when local_id != m do
+  defp maybe_add_member(%Config{status: :started, local_id: local_id, initial_member: m} = cluster, server_id) when local_id != m do
     :ra.add_member(server_id, local_id)
     cluster
   end
 
-  defp maybe_add_member(cluster, _server_id, _started?) do
+  defp maybe_add_member(cluster, _server_id) do
     cluster
   end
 
