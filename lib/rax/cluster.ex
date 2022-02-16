@@ -254,18 +254,18 @@ defmodule Rax.Cluster do
   end
 
   defp do_remove_member(%Config{name: name}, member) do
-    leader_id = :ra_leaderboard.lookup_leader(name)
+    case :ra_leaderboard.lookup_leader(name) do
+      :undefined ->
+        {:error, :leader_undefined}
 
-    if leader_id == :undefined do
-      {:error, :leader_undefined}
-    else
-      case :ra.remove_member(leader_id, member) do
-        {:ok, res, _leader} ->
-          {:ok, res}
+      leader_id ->
+        case :ra.remove_member(leader_id, member) do
+          {:ok, res, _leader} ->
+            {:ok, res}
 
-        error ->
-          error
-      end
+          error ->
+            error
+        end
     end
   end
 
