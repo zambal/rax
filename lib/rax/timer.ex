@@ -4,11 +4,12 @@ defmodule Rax.Timer do
   # API
 
   @type opts :: [opt]
-  @type opt :: {:interval, non_neg_integer()} |
-    {:type, :repeat | :once}  |
-    {:exclusive, boolean()}
+  @type opt ::
+          {:interval, non_neg_integer()}
+          | {:type, :repeat | :once}
+          | {:exclusive, boolean()}
 
-  @type func :: (-> any())
+  @type func :: (() -> any())
 
   @type name :: atom()
 
@@ -25,7 +26,7 @@ defmodule Rax.Timer do
         Rax.call(cluster, {:set_timer, name, fun, opts})
 
       :error ->
-        raise ArgumentError, message: "invalid opts: #{inspect opts}"
+        raise ArgumentError, message: "invalid opts: #{inspect(opts)}"
     end
   end
 
@@ -42,7 +43,7 @@ defmodule Rax.Timer do
   @spec list(Rax.Cluster.name()) :: Keyword.t()
   def list(cluster) do
     Rax.query(cluster, fn state ->
-      for {name, { _fun, opts}} <- state do
+      for {name, {_fun, opts}} <- state do
         {name, opts}
       end
     end)
@@ -120,17 +121,19 @@ defmodule Rax.Timer do
   end
 
   defp handle_fun(fun, opts) do
-    f =
-      fn ->
-        try do
-          fun.()
-          :ok
-        catch
-          type, reason ->
-            Logger.error("Rax Timer fun #{inspect type} with reason: #{inspect reason}\n#{inspect __STACKTRACE__}")
-            :error
-        end
+    f = fn ->
+      try do
+        fun.()
+        :ok
+      catch
+        type, reason ->
+          Logger.error(
+            "Rax Timer fun #{inspect(type)} with reason: #{inspect(reason)}\n#{inspect(__STACKTRACE__)}"
+          )
+
+          :error
       end
+    end
 
     if opts[:exclusive] do
       {:cont, {:mod_call, Rax.Timer, :apply_fun, [f]}}
@@ -152,10 +155,11 @@ defmodule Rax.Timer do
 
   defp init_opts(opts) do
     opts = Keyword.merge(@default_opts, opts)
-    with {:ok, n} when (is_integer(n) and n >= 0) or n == :infinity <- Keyword.fetch(opts, :interval),
-        {:ok, type} when type in [:repeat, :once] <- Keyword.fetch(opts, :type),
-        exclusive when exclusive in [true, false] <- Keyword.get(opts, :exclusive, false)
-    do
+
+    with {:ok, n} when (is_integer(n) and n >= 0) or n == :infinity <-
+           Keyword.fetch(opts, :interval),
+         {:ok, type} when type in [:repeat, :once] <- Keyword.fetch(opts, :type),
+         exclusive when exclusive in [true, false] <- Keyword.get(opts, :exclusive, false) do
       {:ok, opts}
     else
       _ ->

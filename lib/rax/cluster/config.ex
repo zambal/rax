@@ -221,7 +221,6 @@ defmodule Rax.Cluster.Config do
     {:error, e}
   end
 
-
   defp validate_retry({:ok, cluster}, opts) do
     case opts[:retry] do
       {n, i} when is_integer(n) and n >= 0 and is_integer(i) and i >= 0 ->

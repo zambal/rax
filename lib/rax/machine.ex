@@ -1,5 +1,4 @@
 defmodule Rax.Machine do
-
   @type cmd :: term()
   @type state :: term()
 
@@ -23,8 +22,8 @@ defmodule Rax.Machine do
         {state, {:ok, ndx}, [{:release_cursor, ndx, state}]}
       end
 
-      def handle_aux(_server_state, {:call, _from}, {:"$rax_cmd", :get_log_index}, aux_state, log_state, _mac_state) do
-        {:reply, elem(log_state, Rax.Machine.last_index_field()), aux_state, log_state}
+      def handle_aux(_server_state, _type, {:"$rax_cmd", :get_log_index}, aux, log, _state) do
+        {:reply, elem(log, Rax.Machine.last_index_field()), aux, log}
       end
 
       def handle_aux(_server_state, _type, _cmd, _aux_state, _log_state, _mac_state) do
@@ -35,7 +34,9 @@ defmodule Rax.Machine do
     end
   end
 
-  @ra_log_rec Record.extract(:ra_log, from: Path.join(Rax.Cluster.Config.ra_src_dir(), "ra_log.erl"))
+  @ra_log_rec Record.extract(:ra_log,
+                from: Path.join(Rax.Cluster.Config.ra_src_dir(), "ra_log.erl")
+              )
   @last_index_field Enum.find_index(@ra_log_rec, fn {k, _v} -> k == :last_index end) + 1
 
   @doc false

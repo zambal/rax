@@ -94,9 +94,7 @@ defmodule Rax.Cluster do
     if config.status == :ready do
       set_available(config.name)
 
-      Logger.info(
-        "Rax #{inspect(config.name)} cluster: health check finished, config available"
-      )
+      Logger.info("Rax #{inspect(config.name)} cluster: health check finished, config available")
 
       {:noreply, config}
     else
@@ -110,9 +108,11 @@ defmodule Rax.Cluster do
       {:ok, config} ->
         insert_info(config, false)
         send_do_health_check(:now)
+
         if config.auto_snapshot do
           send_auto_snapshot_check()
         end
+
         {:noreply, config}
 
       {:error, e} ->
@@ -123,7 +123,6 @@ defmodule Rax.Cluster do
   def handle_info(:check_auto_snapshot, config) do
     {:noreply, check_auto_snapshot(config)}
   end
-
 
   def terminate(_reason, config) do
     if config.status != :new do
@@ -150,6 +149,7 @@ defmodule Rax.Cluster do
   defp send_auto_snapshot_check() do
     Process.send_after(self(), :check_auto_snapshot, @auto_snapshot_check_interval)
   end
+
   # Interaction with :ra
 
   defp start_or_restart_server(config) do
@@ -168,6 +168,7 @@ defmodule Rax.Cluster do
 
   defp start_server(%Config{initial_member: m, local_id: m} = config) do
     ra_server_config = Config.to_ra_server_config(config)
+
     case :ra.start_cluster(:default, [ra_server_config]) do
       {:ok, _, _} ->
         Logger.info("Rax #{inspect(config.name)} #{node()}: Cluster started")
@@ -180,6 +181,7 @@ defmodule Rax.Cluster do
 
   defp start_server(config) do
     ra_server_config = Config.to_ra_server_config(config)
+
     case :ra.start_server(ra_server_config) do
       :ok ->
         Logger.info("Rax #{inspect(config.name)} #{node()}: Server started")
@@ -193,9 +195,10 @@ defmodule Rax.Cluster do
   defp check_auto_snapshot(config) do
     if config.auto_snapshot do
       send_auto_snapshot_check()
+      ndx = get_last_index(config)
 
       with true <- config.status == :ready and leader?(config),
-           true <- get_last_index(config) > (config.last_auto_snapshot_ndx + config.snapshot_interval) do
+           true <- ndx > config.last_auto_snapshot_ndx + config.snapshot_interval do
         {:ok, new_ndx} = Rax.call(config.name, {:"$rax_cmd", :request_snapshot, config.name})
         %Config{config | last_auto_snapshot_ndx: new_ndx}
       else
@@ -204,7 +207,6 @@ defmodule Rax.Cluster do
       end
     end
   end
-
 
   defp check_health(config) do
     config =
@@ -230,7 +232,8 @@ defmodule Rax.Cluster do
 
     case get_ra_server_overview(config) do
       %{state: status} = overview when status in [:leader, :follower] ->
-        Logger.info(log_line <> "ra server overview: #{inspect overview}")
+        Logger.info(log_line <> "ra server overview: #{inspect(overview)}")
+
         case ping(config) do
           {:pong, leader} ->
             Logger.debug("#{inspect(leader)} leader")
@@ -246,7 +249,7 @@ defmodule Rax.Cluster do
         end
 
       overview ->
-        Logger.info(log_line <> "ra server overview: #{inspect overview}")
+        Logger.info(log_line <> "ra server overview: #{inspect(overview)}")
         config
     end
   end
@@ -255,8 +258,9 @@ defmodule Rax.Cluster do
     case :ra_leaderboard.lookup_leader(name) do
       :undefined ->
         {:error, :leader_undefined}
+
       leader_id ->
-       do_ping(leader_id, from)
+        do_ping(leader_id, from)
     end
   end
 
@@ -270,8 +274,11 @@ defmodule Rax.Cluster do
     end
   end
 
-  defp maybe_add_member(%Config{status: :started, local_id: local_id, initial_member: m} = config, server_id) when local_id != m do
-    :ra.add_member(server_id, local_id)
+  defp maybe_add_member(
+         %Config{status: :started, local_id: m, initial_member: m} = config,
+         server_id
+       ) do
+    :ra.add_member(server_id, m)
     config
   end
 
@@ -297,6 +304,7 @@ defmodule Rax.Cluster do
 
   defp connect_known_members(%Config{known_members: members}) do
     self = node()
+
     Enum.reduce(members, [], fn {_id, node}, acc ->
       case node != self and Node.connect(node) do
         true ->
@@ -309,7 +317,7 @@ defmodule Rax.Cluster do
   end
 
   defp get_ra_server_overview(%Config{name: name}) do
-    case :ra.overview do
+    case :ra.overview() do
       %{servers: %{^name => status}} ->
         status
 
@@ -329,7 +337,13 @@ defmodule Rax.Cluster do
   end
 
   defp pick_random_member(config, connected_nodes) do
-    case connected_nodes |> Enum.filter(fn node -> {_, local_node} = config.local_id; node != local_node end) |> Enum.shuffle() do
+    connected_nodes
+    |> Enum.filter(fn node ->
+      {_, local_node} = config.local_id
+      node != local_node
+    end)
+    |> Enum.shuffle()
+    |> case do
       [] ->
         nil
 
