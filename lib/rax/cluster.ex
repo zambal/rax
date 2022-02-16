@@ -194,18 +194,13 @@ defmodule Rax.Cluster do
     if cluster.auto_snapshot do
       send_auto_snapshot_check()
 
-      if cluster.status == :ready and leader?(cluster) do
-        last_ndx = get_last_index(cluster)
-        Logger.info("Rax check auto snapshot #{inspect(cluster.name)} #{node()}, last index: #{last_ndx}")
-
-        if last_ndx > (cluster.last_auto_snapshot_ndx + cluster.snapshot_interval) do
-          {:ok, new_ndx} = Rax.call(cluster.name, {:"$rax_cmd", :request_snapshot, cluster.name})
-          %Config{cluster | last_auto_snapshot_ndx: new_ndx}
-        else
-          cluster
-        end
+      with true <- cluster.status == :ready and leader?(cluster),
+           true <- get_last_index(cluster) > (cluster.last_auto_snapshot_ndx + cluster.snapshot_interval) do
+        {:ok, new_ndx} = Rax.call(cluster.name, {:"$rax_cmd", :request_snapshot, cluster.name})
+        %Config{cluster | last_auto_snapshot_ndx: new_ndx}
       else
-        cluster
+        _ ->
+          cluster
       end
     end
   end
@@ -219,8 +214,7 @@ defmodule Rax.Cluster do
         cluster
       end
 
-    connected_nodes =
-      connect_known_members(cluster)
+    connected_nodes = connect_known_members(cluster)
 
     case pick_random_member(cluster, connected_nodes) do
       nil ->
@@ -258,12 +252,11 @@ defmodule Rax.Cluster do
   end
 
   defp ping(%Config{name: name, local_id: from}) do
-    leader_id = :ra_leaderboard.lookup_leader(name)
-
-    if leader_id == :undefined do
-      {:error, :leader_undefined}
-    else
-      do_ping(leader_id, from)
+    case :ra_leaderboard.lookup_leader(name) do
+      :undefined ->
+        {:error, :leader_undefined}
+      leader_id ->
+       do_ping(leader_id, from)
     end
   end
 
@@ -305,16 +298,12 @@ defmodule Rax.Cluster do
   defp connect_known_members(%Config{known_members: members}) do
     self = node()
     Enum.reduce(members, [], fn {_id, node}, acc ->
-      if node != self do
-        case Node.connect(node) do
-          true ->
-            [node | acc]
+      case node != self and Node.connect(node) do
+        true ->
+          [node | acc]
 
-          _ ->
-            acc
-        end
-      else
-        acc
+        _ ->
+          acc
       end
     end)
   end
