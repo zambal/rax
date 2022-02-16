@@ -22,6 +22,12 @@ defmodule Rax.Cluster do
     Rax.call(name, {:"$rax_cmd", :request_snapshot, name})
   end
 
+  @spec remove_member(Rax.name(), cluster_node()) :: :ok
+  def remove_member(name, member) do
+    name = {:via, Registry, {Rax.Cluster.Registry, name}}
+    GenServer.call(name, {:remove_member, member})
+  end
+
   def get_local_uid(name) do
     name = {:via, Registry, {Rax.Cluster.Registry, name}}
     GenServer.call(name, :get_local_uid)
@@ -238,6 +244,22 @@ defmodule Rax.Cluster do
 
   defp maybe_add_member(cluster, _server_id, _started?) do
     cluster
+  end
+
+  defp do_remove_member(%Config{name: name}, member) do
+    leader_id = :ra_leaderboard.lookup_leader(name)
+
+    if leader_id == :undefined do
+      {:error, :leader_undefined}
+    else
+      case :ra.remove_member(leader_id, member) do
+        {:ok, res, _leader} ->
+          {:ok, res}
+
+        error ->
+          error
+      end
+    end
   end
 
   defp connect_known_members(%Config{known_members: members}) do
