@@ -24,7 +24,7 @@ defmodule Rax.Machine do
       end
 
       def handle_aux(_server_state, {:call, _from}, {:"$rax_cmd", :get_log_index}, aux_state, log_state, _mac_state) do
-        {:reply, elem(log_state, 3), aux_state, log_state}
+        {:reply, elem(log_state, Rax.Machine.last_index_field()), aux_state, log_state}
       end
 
       def handle_aux(_server_state, _type, _cmd, _aux_state, _log_state, _mac_state) do
@@ -34,4 +34,10 @@ defmodule Rax.Machine do
       defoverridable(:ra_machine)
     end
   end
+
+  @ra_log_rec Record.extract(:ra_log, from: "deps/ra/src/ra_log.erl")
+  @last_index_field Enum.find_index(@ra_log_rec, fn {k, _v} -> k == :last_index end) + 1
+
+  @doc false
+  def last_index_field, do: @last_index_field
 end
