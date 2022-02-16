@@ -4,7 +4,7 @@ defmodule Rax.Cluster do
   alias Rax.Cluster.Config
   require Logger
 
-  @health_check_interval 3_000
+  @health_check_interval 1_000
   @auto_snapshot_check_interval 2_000
 
   @type name :: atom()
