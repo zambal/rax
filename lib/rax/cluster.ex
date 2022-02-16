@@ -5,6 +5,7 @@ defmodule Rax.Cluster do
   require Logger
 
   @health_check_interval 3_000
+  @auto_snapshot_check_interval 10_000
 
   @type name :: atom()
   @type cluster_node :: node() | atom()
@@ -109,12 +110,20 @@ defmodule Rax.Cluster do
       {:ok, cluster} ->
         insert_info(cluster, false)
         send_do_health_check(:now)
+        if cluster.auto_snapshot do
+          send_auto_snapshot_check()
+        end
         {:noreply, cluster}
 
       {:error, e} ->
         {:stop, e, cluster}
     end
   end
+
+  def handle_info(:check_auto_snapshot, cluster) do
+    {:noreply, check_auto_snapshot(cluster)}
+  end
+
 
   def terminate(_reason, cluster) do
     if cluster.status != :new do
@@ -138,6 +147,9 @@ defmodule Rax.Cluster do
     end
   end
 
+  defp send_auto_snapshot_check() do
+    Process.send_after(self(), :check_auto_snapshot, @auto_snapshot_check_interval)
+  end
   # Interaction with :ra
 
   defp start_or_restart_server(cluster) do
@@ -177,6 +189,27 @@ defmodule Rax.Cluster do
         error
     end
   end
+
+  defp check_auto_snapshot(cluster) do
+    if cluster.auto_snapshot do
+      send_auto_snapshot_check()
+
+      if cluster.status == :ready and leader?(cluster) do
+        last_ndx = get_last_index(cluster)
+        Logger.info("Rax check auto snapshot #{inspect(cluster.name)} #{node()}, last index: #{last_ndx}")
+
+        if last_ndx > (cluster.last_auto_snapshot_ndx + cluster.snapshot_interval) do
+          {:ok, new_ndx} = Rax.call(cluster.name, {:"$rax_cmd", :request_snapshot, cluster.name})
+          %Config{cluster | last_auto_snapshot_ndx: new_ndx}
+        else
+          cluster
+        end
+      else
+        cluster
+      end
+    end
+  end
+
 
   defp check_health(cluster) do
     cluster =
@@ -296,6 +329,16 @@ defmodule Rax.Cluster do
     end
   end
 
+  defp leader?(%Config{name: name} = cluster) do
+    case :ra_leaderboard.lookup_leader(name) do
+      :undefined ->
+        false
+
+      leader_id ->
+        cluster.local_id == leader_id
+    end
+  end
+
   defp pick_random_member(cluster, connected_nodes) do
     case connected_nodes |> Enum.filter(fn node -> {_, local_node} = cluster.local_id; node != local_node end) |> Enum.shuffle() do
       [] ->
@@ -305,6 +348,10 @@ defmodule Rax.Cluster do
         n = hd(nodes)
         Enum.find(cluster.known_members, fn {_name, node} -> node == n end)
     end
+  end
+
+  defp get_last_index(cluster) do
+    :ra.aux_command(cluster.local_id, {:"$rax_cmd", :get_log_index})
   end
 
   # Ckuster info ETS table management

@@ -23,7 +23,13 @@ defmodule Rax.Machine do
         {state, {:ok, ndx}, [{:release_cursor, ndx, state}]}
       end
 
+      def handle_aux(_server_state, {:call, _from}, {:"$rax_cmd", :get_log_index}, aux_state, log_state, _mac_state) do
+        {:reply, elem(log_state, 3), aux_state, log_state}
+      end
 
+      def handle_aux(_server_state, _type, _cmd, _aux_state, _log_state, _mac_state) do
+        :undefined
+      end
 
       defoverridable(:ra_machine)
     end

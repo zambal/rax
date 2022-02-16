@@ -49,10 +49,6 @@ defmodule Rax.Agent do
     Rax.cast(cluster, {:update, agent, fn s -> Kernel.apply(module, fun, [s | args]) end})
   end
 
-  def set_auto_snapshot(cluster, n) do
-    Rax.call(cluster, {:set_auto_snapshot, n})
-  end
-
   defp handle_result(:ok), do: :ok
   defp handle_result({:ok, value}), do: value
 

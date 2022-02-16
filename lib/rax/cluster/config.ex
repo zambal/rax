@@ -14,6 +14,7 @@ defmodule Rax.Cluster.Config do
             circuit_breaker: false,
             auto_snapshot: false,
             snapshot_interval: 4096,
+            last_auto_snapshot_ndx: 0,
             retry: {0, 0}
 
   @type retry :: {non_neg_integer(), non_neg_integer()}
@@ -52,6 +53,7 @@ defmodule Rax.Cluster.Config do
           circuit_breaker: boolean(),
           auto_snapshot: pos_integer() | false,
           snapshot_interval: non_neg_integer(),
+          last_auto_snapshot_ndx: non_neg_integer(),
           retry: retry()
         }
 
@@ -177,8 +179,8 @@ defmodule Rax.Cluster.Config do
 
   defp validate_auto_snapshot({:ok, cluster}, opts) do
     case opts[:auto_snapshot] do
-      n when is_integer(n) and n > 0 ->
-        {:ok, %Config{cluster | auto_snapshot: n}}
+      true ->
+        {:ok, %Config{cluster | auto_snapshot: true}}
 
       b when b in [false, nil] ->
         {:ok, %Config{cluster | auto_snapshot: false}}
