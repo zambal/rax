@@ -5,7 +5,7 @@ defmodule Rax.Cluster do
   require Logger
 
   @health_check_interval 3_000
-  @auto_snapshot_check_interval 10_000
+  @auto_snapshot_check_interval 2_000
 
   @type name :: atom()
   @type cluster_node :: node() | atom()
