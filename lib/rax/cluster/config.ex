@@ -83,6 +83,15 @@ defmodule Rax.Cluster.Config do
     }
   end
 
+  @spec ra_src_dir :: String.t() | nil
+  def ra_src_dir do
+    cond do
+      File.exists?("deps/ra/src") -> "deps/ra/src"
+      File.exists?("../ra/src") -> "../ra/src"
+      true -> nil
+    end
+  end
+
   defp validate_cluster_name({:ok, cluster}, opts) do
     case opts[:name] do
       name when is_atom(name) and not is_nil(name) ->

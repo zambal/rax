@@ -35,7 +35,7 @@ defmodule Rax.Machine do
     end
   end
 
-  @ra_log_rec Record.extract(:ra_log, from: "deps/ra/src/ra_log.erl")
+  @ra_log_rec Record.extract(:ra_log, from: Path.join(Rax.Cluster.Config.ra_src_dir(), "ra_log.erl"))
   @last_index_field Enum.find_index(@ra_log_rec, fn {k, _v} -> k == :last_index end) + 1
 
   @doc false
