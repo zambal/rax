@@ -188,11 +188,8 @@ defmodule Rax.Cluster.Config do
 
   defp validate_auto_snapshot({:ok, cluster}, opts) do
     case opts[:auto_snapshot] do
-      true ->
-        {:ok, %Config{cluster | auto_snapshot: true}}
-
-      b when b in [false, nil] ->
-        {:ok, %Config{cluster | auto_snapshot: false}}
+      as when is_boolean(as) or is_nil(as) ->
+        {:ok, %Config{cluster | auto_snapshot: !!as}}
 
       _ ->
         {:error, :invalid_auto_snapshot}
