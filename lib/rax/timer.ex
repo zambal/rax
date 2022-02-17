@@ -7,7 +7,6 @@ defmodule Rax.Timer do
   @type opt ::
           {:interval, non_neg_integer()}
           | {:type, :repeat | :once}
-          | {:exclusive, boolean()}
 
   @type func :: (() -> any())
 
@@ -15,8 +14,7 @@ defmodule Rax.Timer do
 
   @default_opts [
     interval: 1000,
-    type: :repeat,
-    exclusive: true
+    type: :repeat
   ]
 
   @spec set(Rax.Cluster.name(), name(), func(), opts()) :: :ok
@@ -84,15 +82,9 @@ defmodule Rax.Timer do
   def apply(_meta, {:timeout, name}, state) do
     case Map.fetch(state, name) do
       {:ok, {fun, opts}} ->
-        case handle_fun(fun, opts) do
-          {:cont, effect} ->
-            {state, effects} = handle_state(state, name, opts)
-            {state, :ok, [effect | effects]}
-
-          resp ->
-            {state, effects} = handle_state(state, name, opts)
-            {state, resp, effects}
-        end
+        effect = {:mod_call, Rax.Timer, :apply_fun, [fun]}
+        {state, effects} = handle_state(state, name, opts)
+        {state, :ok, [effect | effects]}
 
       :error ->
         {state, nil}
@@ -117,29 +109,15 @@ defmodule Rax.Timer do
 
   @doc false
   def apply_fun(fun) do
-    spawn(fun)
-  end
-
-  defp handle_fun(fun, opts) do
-    f = fn ->
+    spawn(fn ->
       try do
         fun.()
-        :ok
       catch
-        type, reason ->
-          Logger.error(
-            "Rax Timer fun #{inspect(type)} with reason: #{inspect(reason)}\n#{inspect(__STACKTRACE__)}"
-          )
-
-          :error
+        kind, payload ->
+          err = Exception.format(kind, payload, __STACKTRACE__)
+          Logger.error(err)
       end
-    end
-
-    if opts[:exclusive] do
-      {:cont, {:mod_call, Rax.Timer, :apply_fun, [f]}}
-    else
-      f.()
-    end
+    end)
   end
 
   defp handle_state(state, name, opts) do
@@ -158,8 +136,7 @@ defmodule Rax.Timer do
 
     with {:ok, n} when (is_integer(n) and n >= 0) or n == :infinity <-
            Keyword.fetch(opts, :interval),
-         {:ok, type} when type in [:repeat, :once] <- Keyword.fetch(opts, :type),
-         exclusive when exclusive in [true, false] <- Keyword.get(opts, :exclusive, false) do
+         {:ok, type} when type in [:repeat, :once] <- Keyword.fetch(opts, :type) do
       {:ok, opts}
     else
       _ ->
