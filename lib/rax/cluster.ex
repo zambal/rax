@@ -275,10 +275,10 @@ defmodule Rax.Cluster do
   end
 
   defp maybe_add_member(
-         %Config{status: :started, local_id: m, initial_member: m} = config,
+         %Config{status: :started, local_id: l, initial_member: m} = config,
          server_id
-       ) do
-    :ra.add_member(server_id, m)
+       ) when l != m do
+    :ra.add_member(server_id, l)
     config
   end
 
