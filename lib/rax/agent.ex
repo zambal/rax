@@ -59,8 +59,10 @@ defmodule Rax.Agent do
   defp handle_result({:error, :agent_not_new, agent}),
     do: raise(ArgumentError, message: "agent already exists: #{inspect(agent)}")
 
-  defp handle_result({:error, :badret, ret}),
-    do: raise(ArgumentError, message: "bad return value from agent, expected {reply, state}, got: #{inspect(ret)}")
+  defp handle_result({:error, :badret, ret}) do
+    msg = "bad return value, expected {reply, state}, got: #{inspect(ret)}"
+    raise(ArgumentError, message: msg)
+  end
 
   defp handle_result({:error, {:throw, reason, _stacktrace}}),
     do: throw(reason)
@@ -70,7 +72,6 @@ defmodule Rax.Agent do
 
   defp handle_result({:error, {:exit, reason, _stacktrace}}),
     do: exit(reason)
-
 
   # State Machine
 
