@@ -94,7 +94,7 @@ defmodule Rax.Cluster do
     if config.status == :ready do
       set_available(config.name)
 
-      Logger.info("Rax #{inspect(config.name)} cluster: health check finished, config available")
+      Logger.info("Rax #{inspect(config.name)} cluster: health check finished, cluster available")
 
       {:noreply, config}
     else
