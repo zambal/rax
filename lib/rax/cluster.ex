@@ -23,6 +23,18 @@ defmodule Rax.Cluster do
     Rax.call(name, {:"$rax_cmd", :request_snapshot, name})
   end
 
+  def pause_auto_snapshot(name) do
+    name = {:via, Registry, {Rax.Cluster.Registry, name}}
+    GenServer.cast(name, :pause_auto_snapshot)
+  end
+
+  def resume_auto_snapshot(name) do
+    name = {:via, Registry, {Rax.Cluster.Registry, name}}
+    GenServer.cast(name, :resume_auto_snapshot)
+  end
+
+
+
   @spec remove_member(Rax.name(), cluster_node()) :: :ok
   def remove_member(name, member) do
     name = {:via, Registry, {Rax.Cluster.Registry, name}}
@@ -87,6 +99,17 @@ defmodule Rax.Cluster do
 
     {:noreply, config}
   end
+
+  def handle_cast(:pause_auto_snapshot, config) do
+    Logger.info("Rax #{inspect(config.name)} cluster: auto snapshot paused")
+    {:noreply, %Config{config | auto_snapshot: false}}
+  end
+
+  def handle_cast(:resume_auto_snapshot, config) do
+    Logger.info("Rax #{inspect(config.name)} cluster: auto snapshot resumed")
+    {:noreply, %Config{config | auto_snapshot: true}}
+  end
+
 
   def handle_info(:do_health_check, config) do
     config = check_health(config)
@@ -194,7 +217,6 @@ defmodule Rax.Cluster do
 
   defp check_auto_snapshot(config) do
     if config.auto_snapshot do
-      send_auto_snapshot_check()
       ndx = get_last_index(config)
 
       with true <- config.status == :ready and leader?(config),
@@ -206,6 +228,8 @@ defmodule Rax.Cluster do
           config
       end
     end
+
+    send_auto_snapshot_check()
   end
 
   defp check_health(config) do
