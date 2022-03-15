@@ -228,6 +228,8 @@ defmodule Rax.Cluster do
           _ ->
             config
         end
+      else
+        config
       end
 
     send_auto_snapshot_check()
