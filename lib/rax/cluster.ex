@@ -71,19 +71,24 @@ defmodule Rax.Cluster do
   end
 
   def init(config) do
+    Logger.debug("Rax.Cluster.init BEGIN")
     send_start_or_restart_server()
+    Logger.debug("Rax.Cluster.init END")
     {:ok, config}
   end
 
   def handle_call(:get_local_uid, _from, config) do
+    Logger.debug("Rax.Cluster.handle_call :get_local_uid")
     {:reply, config.local_uid, config}
   end
 
   def handle_call({:remove_member, member}, _from, config) do
+    Logger.debug("Rax.Cluster.handle_call :remove_member")
     {:reply, do_remove_member(config, member), config}
   end
 
   def handle_cast(:request_health_check, config) do
+    Logger.debug("Rax.Cluster.handle_cast :request_health_check BEGIN")
     if config.status == :ready do
       if config.circuit_breaker do
         set_unavailable(config.name)
@@ -97,6 +102,7 @@ defmodule Rax.Cluster do
       Logger.info("Rax #{inspect(config.name)} cluster: health check started")
     end
 
+    Logger.debug("Rax.Cluster.handle_cast :request_health_check END")
     {:noreply, config}
   end
 
@@ -112,6 +118,7 @@ defmodule Rax.Cluster do
 
 
   def handle_info(:do_health_check, config) do
+    Logger.debug("Rax.Cluster.handle_info :do_health_check BEGIN")
     config = check_health(config)
 
     if config.status == :ready do
@@ -119,14 +126,17 @@ defmodule Rax.Cluster do
 
       Logger.info("Rax #{inspect(config.name)} cluster: health check finished, cluster available")
 
+      Logger.debug("Rax.Cluster.handle_info :do_health_check END")
       {:noreply, config}
     else
       send_do_health_check(:interval)
+      Logger.debug("Rax.Cluster.handle_info :do_health_check END")
       {:noreply, config}
     end
   end
 
   def handle_info(:start_or_restart_server, config) do
+    Logger.debug("Rax.Cluster.handle_info :start_or_restart_server BEGIN")
     case start_or_restart_server(config) do
       {:ok, config} ->
         insert_info(config, false)
@@ -136,18 +146,24 @@ defmodule Rax.Cluster do
           send_auto_snapshot_check()
         end
 
+        Logger.debug("Rax.Cluster.handle_info :start_or_restart_server END")
         {:noreply, config}
 
       {:error, e} ->
+        Logger.debug("Rax.Cluster.handle_info :start_or_restart_server END")
         {:stop, e, config}
     end
   end
 
   def handle_info(:check_auto_snapshot, config) do
-    {:noreply, check_auto_snapshot(config)}
+    Logger.debug("Rax.Cluster.handle_info :check_auto_snapshot BEGIN")
+    config = check_auto_snapshot(config)
+    Logger.debug("Rax.Cluster.handle_info :check_auto_snapshot END")
+    {:noreply, config}
   end
 
-  def terminate(_reason, config) do
+  def terminate(reason, config) do
+    Logger.debug("Rax.Cluster.terminate: #{inspect reason}")
     if config.status != :new do
       :ra.stop_server(config.local_id)
     end
