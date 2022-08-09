@@ -87,7 +87,7 @@ defmodule Rax.Timer do
         {state, :ok, [effect | effects]}
 
       {:ok, {_fun, _opts, cluster, true}} ->
-        Logger.warn("Rax timer #{cluster}:#{name} is still busy, skipping current timeout.")
+        Logger.warn("Rax timer #{cluster}/#{name} is still busy, skipping current timeout.")
         {state, nil}
 
       :error ->
@@ -97,11 +97,11 @@ defmodule Rax.Timer do
 
   def apply(_meta, {:reset_busy, name}, state) do
     # Reset busy state to false
-    state =
+    timer =
       Map.fetch!(state, name)
       |> put_elem(3, false)
 
-      {state, :ok}
+      {Map.put(state, name, timer), :ok}
   end
 
   def apply(meta, cmd, state) do
@@ -141,12 +141,12 @@ defmodule Rax.Timer do
 
       :repeat ->
         # Set to busy
-        state =
+        timer =
           Map.fetch!(state, name)
           |> put_elem(3, true)
 
         interval = Keyword.fetch!(opts, :interval)
-        {state, [{:timer, name, interval}]}
+        {Map.put(state, name, timer), [{:timer, name, interval}]}
     end
   end
 
