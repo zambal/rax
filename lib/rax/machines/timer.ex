@@ -21,7 +21,7 @@ defmodule Rax.Timer do
   def set(cluster, name, fun, opts \\ []) when is_function(fun, 0) do
     case init_opts(opts) do
       {:ok, opts} ->
-        Rax.call(cluster, {:set_timer, name, fun, opts})
+        Rax.call(cluster, {:set_timer, name, fun, opts, cluster})
 
       :error ->
         raise ArgumentError, message: "invalid opts: #{inspect(opts)}"
@@ -41,7 +41,7 @@ defmodule Rax.Timer do
   @spec list(Rax.Cluster.name()) :: Keyword.t()
   def list(cluster) do
     Rax.query(cluster, fn state ->
-      for {name, {_fun, opts}} <- state do
+      for {name, {_fun, opts, _cluster, _busy}} <- state do
         {name, opts}
       end
     end)
@@ -56,8 +56,8 @@ defmodule Rax.Timer do
   end
 
   @doc false
-  def apply(_meta, {:set_timer, name, fun, opts}, state) do
-    state = Map.put(state, name, {fun, opts})
+  def apply(_meta, {:set_timer, name, fun, opts, cluster}, state) do
+    state = Map.put(state, name, {fun, opts, cluster, false})
     interval = Keyword.fetch!(opts, :interval)
     {state, :ok, [{:timer, name, interval}]}
   end
@@ -81,14 +81,27 @@ defmodule Rax.Timer do
 
   def apply(_meta, {:timeout, name}, state) do
     case Map.fetch(state, name) do
-      {:ok, {fun, opts}} ->
-        effect = {:mod_call, Rax.Timer, :apply_fun, [fun]}
+      {:ok, {fun, opts, cluster, false}} ->
+        effect = {:mod_call, Rax.Timer, :apply_fun, [fun, cluster, name]}
         {state, effects} = handle_state(state, name, opts)
         {state, :ok, [effect | effects]}
+
+      {:ok, {_fun, _opts, cluster, true}} ->
+        Logger.warn("Rax timer #{cluster}:#{name} is still busy, skipping current timeout.")
+        {state, nil}
 
       :error ->
         {state, nil}
     end
+  end
+
+  def apply(_meta, {:reset_busy, name}, state) do
+    # Reset busy state to false
+    state =
+      Map.fetch!(state, name)
+      |> put_elem(3, false)
+
+      {state, :ok}
   end
 
   def apply(meta, cmd, state) do
@@ -108,7 +121,7 @@ defmodule Rax.Timer do
   end
 
   @doc false
-  def apply_fun(fun) do
+  def apply_fun(fun, cluster, name) do
     spawn(fn ->
       try do
         fun.()
@@ -117,6 +130,7 @@ defmodule Rax.Timer do
           err = Exception.format(kind, payload, __STACKTRACE__)
           Logger.error(err)
       end
+      Rax.cast(cluster, {:reset_busy, name})
     end)
   end
 
@@ -126,6 +140,11 @@ defmodule Rax.Timer do
         {Map.delete(state, name), []}
 
       :repeat ->
+        # Set to busy
+        state =
+          Map.fetch!(state, name)
+          |> put_elem(3, true)
+
         interval = Keyword.fetch!(opts, :interval)
         {state, [{:timer, name, interval}]}
     end
