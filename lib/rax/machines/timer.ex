@@ -110,7 +110,7 @@ defmodule Rax.Timer do
 
   @doc false
   def state_enter(:leader, state) do
-    for {name, {_fun, opts}} <- state do
+    for {name, {_fun, opts, _cluster, _busy}} <- state do
       interval = Keyword.fetch!(opts, :interval)
       {:timer, name, interval}
     end
