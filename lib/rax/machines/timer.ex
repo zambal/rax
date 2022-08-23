@@ -79,6 +79,14 @@ defmodule Rax.Timer do
     {%{}, :ok, effects}
   end
 
+  def apply(_meta, {:timeout, :"$rax_reset_busy"}, state) do
+    state =
+      for {name, {fun, opts, cluster, _busy}} <- state, into: %{} do
+        {name, {fun, opts, cluster, false}}
+      end
+
+    {state, nil}
+  end
   def apply(_meta, {:timeout, name}, state) do
     case Map.fetch(state, name) do
       {:ok, {fun, opts, cluster, false}} ->
@@ -110,10 +118,13 @@ defmodule Rax.Timer do
 
   @doc false
   def state_enter(:leader, state) do
-    for {name, {_fun, opts, _cluster, _busy}} <- state do
-      interval = Keyword.fetch!(opts, :interval)
-      {:timer, name, interval}
-    end
+    timers =
+      for {name, {_fun, opts, _cluster, _busy}} <- state do
+        interval = Keyword.fetch!(opts, :interval)
+        {:timer, name, interval}
+      end
+
+    [{:timer, :"$rax_reset_busy", 1} | timers]
   end
 
   def state_enter(_, _state) do
