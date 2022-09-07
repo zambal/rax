@@ -94,9 +94,10 @@ defmodule Rax.Timer do
         {state, effects} = handle_state(state, name, opts)
         {state, :ok, [effect | effects]}
 
-      {:ok, {_fun, _opts, cluster, true}} ->
+      {:ok, {_fun, opts, cluster, true}} ->
         Logger.warn("Rax timer #{cluster}/#{name} is still busy, skipping current timeout.")
-        {state, nil}
+        effects = handle_skip(name, opts)
+        {state, effects}
 
       :error ->
         {state, nil}
@@ -159,6 +160,11 @@ defmodule Rax.Timer do
         interval = Keyword.fetch!(opts, :interval)
         {Map.put(state, name, timer), [{:timer, name, interval}]}
     end
+  end
+
+  defp handle_skip(name , opts) do
+    interval = Keyword.fetch!(opts, :interval)
+    [{:timer, name, interval}]
   end
 
   defp init_opts(opts) do
