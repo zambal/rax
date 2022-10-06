@@ -97,7 +97,7 @@ defmodule Rax.Timer do
       {:ok, {_fun, opts, cluster, true}} ->
         Logger.warn("Rax timer #{cluster}/#{name} is still busy, skipping current timeout.")
         effects = handle_skip(name, opts)
-        {state, effects}
+        {state, :ok, effects}
 
       :error ->
         {state, nil}
