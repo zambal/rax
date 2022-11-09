@@ -21,7 +21,7 @@ defmodule Rax.MixProject do
 
   defp deps do
     [
-      {:ra, "~> 2.0"}
+      {:ra, "~> 2.4"}
     ]
   end
 end
