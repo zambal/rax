@@ -5,7 +5,7 @@ defmodule Rax.Timer do
 
   @type opts :: [opt]
   @type opt ::
-          {:interval, non_neg_integer()}
+          {:interval, non_neg_integer() | {non_neg_integer(), non_neg_integer(), non_neg_integer()}}
           | {:type, :repeat | :once}
 
   @type func :: (() -> any())
@@ -58,7 +58,7 @@ defmodule Rax.Timer do
   @doc false
   def apply(_meta, {:set_timer, name, fun, opts, cluster}, state) do
     state = Map.put(state, name, {fun, opts, cluster, false})
-    interval = Keyword.fetch!(opts, :interval)
+    interval = fetch_interval!(opts)
     {state, :ok, [{:timer, name, interval}]}
   end
 
@@ -100,17 +100,14 @@ defmodule Rax.Timer do
         {state, :ok, effects}
 
       :error ->
+        Logger.warn("Rax timer #{name} not found")
         {state, nil}
     end
   end
 
   def apply(_meta, {:reset_busy, name}, state) do
     # Reset busy state to false
-    timer =
-      Map.fetch!(state, name)
-      |> put_elem(3, false)
-
-      {Map.put(state, name, timer), :ok}
+    {Map.update!(state, name, &put_elem(&1, 3, false) ), :ok}
   end
 
   def apply(meta, cmd, state) do
@@ -121,7 +118,7 @@ defmodule Rax.Timer do
   def state_enter(:leader, state) do
     timers =
       for {name, {_fun, opts, _cluster, _busy}} <- state do
-        interval = Keyword.fetch!(opts, :interval)
+        interval = fetch_interval!(opts)
         {:timer, name, interval}
       end
 
@@ -157,26 +154,51 @@ defmodule Rax.Timer do
           Map.fetch!(state, name)
           |> put_elem(3, true)
 
-        interval = Keyword.fetch!(opts, :interval)
+        interval = fetch_interval!(opts)
         {Map.put(state, name, timer), [{:timer, name, interval}]}
     end
   end
 
   defp handle_skip(name , opts) do
-    interval = Keyword.fetch!(opts, :interval)
+    interval = fetch_interval!(opts)
     [{:timer, name, interval}]
   end
 
   defp init_opts(opts) do
     opts = Keyword.merge(@default_opts, opts)
 
-    with {:ok, n} when (is_integer(n) and n >= 0) or n == :infinity <-
+    with {:ok, n} when (is_integer(n) and n >= 0) or n == :infinity or is_struct(n, Time) <-
            Keyword.fetch(opts, :interval),
          {:ok, type} when type in [:repeat, :once] <- Keyword.fetch(opts, :type) do
       {:ok, opts}
     else
       _ ->
         :error
+    end
+  end
+
+  defp fetch_interval!(opts) do
+    case Keyword.fetch!(opts, :interval) do
+      %Time{hour: h, minute: m, second: s} ->
+        now = DateTime.utc_now()
+        t1 = Time.from_erl!({h, m, s})
+        t2 = DateTime.to_time(now)
+
+        dt =
+          if Time.compare(t1, t2) == :gt do
+            %DateTime{now | hour: h, minute: m, second: s}
+          else
+            dt = DateTime.add(now, 1, :day)
+            %DateTime{dt | hour: h, minute: m, second: s}
+          end
+
+        {s1, _} = DateTime.to_gregorian_seconds(dt)
+        {s2, _} = DateTime.to_gregorian_seconds(now)
+
+        1000 * (s1 - s2)
+
+      n ->
+        n
     end
   end
 end
