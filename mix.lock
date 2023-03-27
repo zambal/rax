@@ -1,6 +1,6 @@
 %{
   "aten": {:hex, :aten, "0.5.8", "b5c97f48517c4f37f26a519aa57a00a31ff1b8ea4324ec1cae27f818ed5c0db2", [:rebar3], [], "hexpm", "64d40a8cf0ddfea4e13af00b7327f0925147f83612d0627d9506cbffe90c13ef"},
   "gen_batch_server": {:hex, :gen_batch_server, "0.8.8", "7840a1fa63ee1effc83e8a91d22664847a2ba1192d30eafffd914acb51578068", [:rebar3], [], "hexpm", "c3e6a1a2a0fb62aee631a98cfa0fd8903e9562422cbf72043953e2fb1d203017"},
-  "ra": {:hex, :ra, "2.4.1", "903bca4dac705b1a05001a8bd6fcf14d10967582b515ef274f06b65d8c4b519b", [:rebar3], [{:aten, "0.5.8", [hex: :aten, repo: "hexpm", optional: false]}, {:gen_batch_server, "0.8.8", [hex: :gen_batch_server, repo: "hexpm", optional: false]}, {:seshat, "0.3.2", [hex: :seshat, repo: "hexpm", optional: false]}], "hexpm", "b4e7ff475d63d27bb1e544bd43200ce110079c078f8e7d0ac87565262482be52"},
-  "seshat": {:hex, :seshat, "0.3.2", "16cf14e92aecb927d8840387b97a362d0781997a906d0f3bbb274eb0ec3d74d9", [:rebar3], [], "hexpm", "20d820acbeef9d07298ee863d0c9d06f8e620acba100939ebb2925e4d6b0dfc7"},
+  "ra": {:hex, :ra, "2.5.0", "f45295613f53313cec49412d733920987309a137f8a86793166b67205a01a508", [:rebar3], [{:aten, "0.5.8", [hex: :aten, repo: "hexpm", optional: false]}, {:gen_batch_server, "0.8.8", [hex: :gen_batch_server, repo: "hexpm", optional: false]}, {:seshat, "0.4.0", [hex: :seshat, repo: "hexpm", optional: false]}], "hexpm", "321353d6f25bf3ac629698999a5d402308d21bf236bd68a6f4e92bee095f2e5f"},
+  "seshat": {:hex, :seshat, "0.4.0", "1d5dc4294e36b8745245ab2649e24e39d7b6b1209d7a6484f2b8d706c35c9814", [:rebar3], [], "hexpm", "2c3deec7ff86e0d0c05edebd3455c8363123c227be292ffffc1a05eec08bff63"},
 }
