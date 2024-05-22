@@ -5,10 +5,11 @@ defmodule Rax.Timer do
 
   @type opts :: [opt]
   @type opt ::
-          {:interval, non_neg_integer() | {non_neg_integer(), non_neg_integer(), non_neg_integer()}}
+          {:interval,
+           non_neg_integer() | {non_neg_integer(), non_neg_integer(), non_neg_integer()}}
           | {:type, :repeat | :once}
 
-  @type func :: (() -> any())
+  @type func :: (-> any())
 
   @type name :: atom()
 
@@ -87,6 +88,7 @@ defmodule Rax.Timer do
 
     {state, nil}
   end
+
   def apply(_meta, {:timeout, name}, state) do
     case Map.fetch(state, name) do
       {:ok, {fun, opts, cluster, false}} ->
@@ -95,19 +97,19 @@ defmodule Rax.Timer do
         {state, :ok, [effect | effects]}
 
       {:ok, {_fun, opts, cluster, true}} ->
-        Logger.warn("Rax timer #{cluster}/#{name} is still busy, skipping current timeout.")
+        Logger.warning("Rax timer #{cluster}/#{name} is still busy, skipping current timeout.")
         effects = handle_skip(name, opts)
         {state, :ok, effects}
 
       :error ->
-        Logger.warn("Rax timer #{name} not found")
+        Logger.warning("Rax timer #{name} not found")
         {state, nil}
     end
   end
 
   def apply(_meta, {:reset_busy, name}, state) do
     # Reset busy state to false
-    {Map.update!(state, name, &put_elem(&1, 3, false) ), :ok}
+    {Map.update!(state, name, &put_elem(&1, 3, false)), :ok}
   end
 
   def apply(meta, cmd, state) do
@@ -139,6 +141,7 @@ defmodule Rax.Timer do
           err = Exception.format(kind, payload, __STACKTRACE__)
           Logger.error(err)
       end
+
       Rax.cast(cluster, {:reset_busy, name})
     end)
   end
@@ -159,7 +162,7 @@ defmodule Rax.Timer do
     end
   end
 
-  defp handle_skip(name , opts) do
+  defp handle_skip(name, opts) do
     interval = fetch_interval!(opts)
     [{:timer, name, interval}]
   end

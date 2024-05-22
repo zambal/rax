@@ -33,8 +33,6 @@ defmodule Rax.Cluster do
     GenServer.cast(name, :resume_auto_snapshot)
   end
 
-
-
   @spec remove_member(Rax.name(), cluster_node()) :: :ok
   def remove_member(name, member) do
     name = {:via, Registry, {Rax.Cluster.Registry, name}}
@@ -88,7 +86,7 @@ defmodule Rax.Cluster do
       if config.circuit_breaker do
         set_unavailable(config.name)
 
-        Logger.warn(
+        Logger.warning(
           "Rax #{inspect(config.name)} cluster: circuit breaker activated, config unavailable until health check is finished"
         )
       end
@@ -109,7 +107,6 @@ defmodule Rax.Cluster do
     Logger.info("Rax #{inspect(config.name)} cluster: auto snapshot resumed")
     {:noreply, %Config{config | auto_snapshot: true}}
   end
-
 
   def handle_info(:do_health_check, config) do
     config = check_health(config)
@@ -221,7 +218,7 @@ defmodule Rax.Cluster do
         ndx = get_last_index(config)
 
         with true <- leader?(config),
-            true <- ndx > config.last_auto_snapshot_ndx + config.snapshot_interval do
+             true <- ndx > config.last_auto_snapshot_ndx + config.snapshot_interval do
           {:ok, new_ndx} = Rax.call(config.name, {:"$rax_cmd", :request_snapshot, config.name})
           %Config{config | last_auto_snapshot_ndx: new_ndx}
         else
